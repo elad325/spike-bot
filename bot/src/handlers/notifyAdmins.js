@@ -36,7 +36,7 @@ export async function notifyAdminsBotOnline(sock) {
 
   for (const admin of admins) {
     try {
-      await sock.sendMessage(jidFromPhone(admin.phone_number), { text });
+      await sock.sendMessage((admin.jid || jidFromPhone(admin.phone_number)), { text });
       await logAdminMessage(admin, 'text', text);
     } catch (err) {
       log.error(`Failed to notify admin ${admin.phone_number}:`, err.message);
@@ -71,7 +71,7 @@ export async function notifyAdminsNewUser(sock, newUser, firstMessage) {
     `👑 \`/מנהל ${phone}\``;
 
   for (const admin of admins) {
-    const adminJid = jidFromPhone(admin.phone_number);
+    const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
     let sent = false;
 
     // Try buttons first
@@ -122,7 +122,7 @@ export async function notifyAdminsFileMissing(sock, item) {
 
   for (const admin of admins) {
     try {
-      await sock.sendMessage(jidFromPhone(admin.phone_number), { text });
+      await sock.sendMessage((admin.jid || jidFromPhone(admin.phone_number)), { text });
       await logAdminMessage(admin, 'text', text);
     } catch (err) {
       log.error(`Failed to notify admin about missing file:`, err.message);

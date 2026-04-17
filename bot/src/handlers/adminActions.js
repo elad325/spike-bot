@@ -35,7 +35,7 @@ export function parseAdminCommand(text) {
  * @param {string} target - phone number of target user
  */
 export async function handleAdminAction(sock, { action, target }, admin) {
-  const adminJid = jidFromPhone(admin.phone_number);
+  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
 
   // Look up target user
   const { data: targetUser } = await supabase
@@ -68,8 +68,8 @@ export async function handleAdminAction(sock, { action, target }, admin) {
 }
 
 async function approveUser(sock, targetUser, admin, asAdmin) {
-  const adminJid = jidFromPhone(admin.phone_number);
-  const targetJid = jidFromPhone(targetUser.phone_number);
+  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
+  const targetJid = targetUser.jid || jidFromPhone(targetUser.phone_number);
 
   await supabase
     .from('whatsapp_users')
@@ -113,7 +113,7 @@ async function approveUser(sock, targetUser, admin, asAdmin) {
 }
 
 async function denyUser(sock, targetUser, admin) {
-  const adminJid = jidFromPhone(admin.phone_number);
+  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
 
   await supabase
     .from('whatsapp_users')

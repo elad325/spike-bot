@@ -68,7 +68,7 @@ function extractContent(msg) {
   return { type: 'unknown' };
 }
 
-async function getOrCreateUser(phone, name) {
+async function getOrCreateUser(phone, jid, name) {
   const { data: existing } = await supabase
     .from('whatsapp_users')
     .select('*')
@@ -76,12 +76,12 @@ async function getOrCreateUser(phone, name) {
     .maybeSingle();
 
   if (existing) {
-    if (name && name !== existing.whatsapp_name) {
-      await supabase
-        .from('whatsapp_users')
-        .update({ whatsapp_name: name })
-        .eq('id', existing.id);
-      existing.whatsapp_name = name;
+    const updates = {};
+    if (name && name !== existing.whatsapp_name) updates.whatsapp_name = name;
+    if (jid && jid !== existing.jid) updates.jid = jid;
+    if (Object.keys(updates).length) {
+      await supabase.from('whatsapp_users').update(updates).eq('id', existing.id);
+      Object.assign(existing, updates);
     }
     return { user: existing, isNew: false };
   }
@@ -93,6 +93,7 @@ async function getOrCreateUser(phone, name) {
     .upsert(
       {
         phone_number: phone,
+        jid,
         whatsapp_name: name || phone,
         status: 'pending',
         role: 'user',
@@ -107,9 +108,6 @@ async function getOrCreateUser(phone, name) {
     return { user: null, isNew: false };
   }
 
-  // isNew=true only when this call actually created the row, not when it
-  // matched an existing row inserted by a concurrent request. created_at
-  // within the last 5s is a good-enough proxy.
   const isNew = Date.now() - new Date(created.created_at).getTime() < 5000;
   return { user: created, isNew };
 }
@@ -140,29 +138,29 @@ async function getInactivityTimeoutMs() {
 }
 
 export async function handleMessage(sock, msg) {
-  // Skip own / non-individual messages
+  // Skip own messages
   if (msg.key.fromMe) return;
   const jid = msg.key.remoteJid;
-  if (!jid || !jid.endsWith('@s.whatsapp.net')) return;
+  if (!jid) return;
+
+  // Accept both classic phone JIDs and WhatsApp's privacy-preserving @lid
+  // format. Reject everything else (groups, broadcasts, status, newsletters).
+  if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return;
 
   const phone = phoneFromJid(jid);
-
-  // Skip self-chat / device-sync messages: WhatsApp delivers protocol traffic
-  // from the bot's own JID on connect. Without this guard the bot adds itself
-  // as a "user" with empty `unknown` messages.
   const botPhone = phoneFromJid(sock.user?.id);
   if (botPhone && phone === botPhone) return;
 
   const content = extractContent(msg);
-  // Drop protocol/unknown payloads that have no actual user content.
   if (!content || content.type === 'unknown') return;
 
   const name = msg.pushName || phone;
 
   log.info(`📨 ${name} (${phone}): [${content.type}] ${content.text || content.buttonId || content.rowId || ''}`);
 
-  // Get or create user
-  const { user } = await getOrCreateUser(phone, name);
+  // Get or create user (store the original jid so replies go back via the
+  // same address — LID-only contacts can't be reached via @s.whatsapp.net).
+  const { user } = await getOrCreateUser(phone, jid, name);
   if (!user) return;
 
   const previousLastMsg = user.last_message_at ? new Date(user.last_message_at).getTime() : 0;
