@@ -86,14 +86,19 @@ async function getOrCreateUser(phone, name) {
     return { user: existing, isNew: false };
   }
 
+  // Atomic upsert handles the race where two messages arrive nearly
+  // simultaneously and both miss the existence check above.
   const { data: created, error } = await supabase
     .from('whatsapp_users')
-    .insert({
-      phone_number: phone,
-      whatsapp_name: name || phone,
-      status: 'pending',
-      role: 'user',
-    })
+    .upsert(
+      {
+        phone_number: phone,
+        whatsapp_name: name || phone,
+        status: 'pending',
+        role: 'user',
+      },
+      { onConflict: 'phone_number', ignoreDuplicates: false }
+    )
     .select()
     .single();
 
@@ -102,7 +107,11 @@ async function getOrCreateUser(phone, name) {
     return { user: null, isNew: false };
   }
 
-  return { user: created, isNew: true };
+  // isNew=true only when this call actually created the row, not when it
+  // matched an existing row inserted by a concurrent request. created_at
+  // within the last 5s is a good-enough proxy.
+  const isNew = Date.now() - new Date(created.created_at).getTime() < 5000;
+  return { user: created, isNew };
 }
 
 async function saveMessage({ user, phone, name, content, direction = 'incoming' }) {
@@ -137,9 +146,18 @@ export async function handleMessage(sock, msg) {
   if (!jid || !jid.endsWith('@s.whatsapp.net')) return;
 
   const phone = phoneFromJid(jid);
-  const name = msg.pushName || phone;
+
+  // Skip self-chat / device-sync messages: WhatsApp delivers protocol traffic
+  // from the bot's own JID on connect. Without this guard the bot adds itself
+  // as a "user" with empty `unknown` messages.
+  const botPhone = phoneFromJid(sock.user?.id);
+  if (botPhone && phone === botPhone) return;
+
   const content = extractContent(msg);
-  if (!content) return;
+  // Drop protocol/unknown payloads that have no actual user content.
+  if (!content || content.type === 'unknown') return;
+
+  const name = msg.pushName || phone;
 
   log.info(`📨 ${name} (${phone}): [${content.type}] ${content.text || content.buttonId || content.rowId || ''}`);
 
