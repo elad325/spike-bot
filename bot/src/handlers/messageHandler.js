@@ -1,0 +1,390 @@
+import { supabase } from '../supabase.js';
+import { log } from '../utils/logger.js';
+import { phoneFromJid, parseNumericReply } from '../utils/format.js';
+import { sendMenu, sendRootMenu, sendFile, sendText } from './menuHandler.js';
+import {
+  notifyAdminsNewUser,
+  sendApprovalResult,
+} from './notifyAdmins.js';
+import { handleAdminAction, isAdminCommand, parseAdminCommand } from './adminActions.js';
+
+const RESET_COMMANDS = ['תפריט', '/תפריט', '/menu', '/start', 'start', 'היי', 'שלום'];
+const HELP_COMMANDS = ['/עזרה', '/help', 'עזרה', 'help'];
+const BACK_INPUTS = ['0', 'חזרה', '/חזרה', 'back', '/back'];
+const HOME_INPUTS = ['*', '#', 'בית', '/בית', 'home', '/home'];
+
+/**
+ * Extract a normalized message representation from the Baileys message object.
+ */
+function extractContent(msg) {
+  const m = msg.message;
+  if (!m) return null;
+
+  if (m.conversation) {
+    return { type: 'text', text: m.conversation };
+  }
+  if (m.extendedTextMessage?.text) {
+    return { type: 'text', text: m.extendedTextMessage.text };
+  }
+  if (m.buttonsResponseMessage) {
+    return {
+      type: 'button',
+      buttonId: m.buttonsResponseMessage.selectedButtonId,
+      text: m.buttonsResponseMessage.selectedDisplayText,
+    };
+  }
+  if (m.listResponseMessage?.singleSelectReply) {
+    return {
+      type: 'list',
+      rowId: m.listResponseMessage.singleSelectReply.selectedRowId,
+      text: m.listResponseMessage.title,
+    };
+  }
+  if (m.templateButtonReplyMessage) {
+    return {
+      type: 'button',
+      buttonId: m.templateButtonReplyMessage.selectedId,
+      text: m.templateButtonReplyMessage.selectedDisplayText,
+    };
+  }
+  if (m.interactiveResponseMessage) {
+    try {
+      const params = JSON.parse(
+        m.interactiveResponseMessage.nativeFlowResponseMessage?.paramsJson || '{}'
+      );
+      return { type: 'button', buttonId: params.id, text: '' };
+    } catch {
+      return { type: 'unknown' };
+    }
+  }
+  if (m.imageMessage) return { type: 'image', text: m.imageMessage.caption || '', mediaInfo: { mimetype: m.imageMessage.mimetype } };
+  if (m.videoMessage) return { type: 'video', text: m.videoMessage.caption || '', mediaInfo: { mimetype: m.videoMessage.mimetype } };
+  if (m.audioMessage) return { type: 'audio', mediaInfo: { mimetype: m.audioMessage.mimetype } };
+  if (m.documentMessage) return { type: 'document', text: m.documentMessage.fileName || '', mediaInfo: { mimetype: m.documentMessage.mimetype } };
+  if (m.stickerMessage) return { type: 'sticker' };
+  if (m.locationMessage) return { type: 'location' };
+  if (m.contactMessage) return { type: 'contact' };
+
+  return { type: 'unknown' };
+}
+
+async function getOrCreateUser(phone, name) {
+  const { data: existing } = await supabase
+    .from('whatsapp_users')
+    .select('*')
+    .eq('phone_number', phone)
+    .maybeSingle();
+
+  if (existing) {
+    if (name && name !== existing.whatsapp_name) {
+      await supabase
+        .from('whatsapp_users')
+        .update({ whatsapp_name: name })
+        .eq('id', existing.id);
+      existing.whatsapp_name = name;
+    }
+    return { user: existing, isNew: false };
+  }
+
+  const { data: created, error } = await supabase
+    .from('whatsapp_users')
+    .insert({
+      phone_number: phone,
+      whatsapp_name: name || phone,
+      status: 'pending',
+      role: 'user',
+    })
+    .select()
+    .single();
+
+  if (error) {
+    log.error('Failed to create user:', error);
+    return { user: null, isNew: false };
+  }
+
+  return { user: created, isNew: true };
+}
+
+async function saveMessage({ user, phone, name, content, direction = 'incoming' }) {
+  await supabase.from('messages').insert({
+    user_id: user?.id || null,
+    phone_number: phone,
+    whatsapp_name: name,
+    direction,
+    message_type: content?.type || 'unknown',
+    body: content?.text || null,
+    media_metadata: content?.mediaInfo || null,
+  });
+}
+
+/**
+ * Get inactivity timeout from app_settings.
+ */
+async function getInactivityTimeoutMs() {
+  const { data } = await supabase
+    .from('app_settings')
+    .select('inactivity_timeout_minutes')
+    .limit(1)
+    .single();
+  const minutes = data?.inactivity_timeout_minutes ?? 60;
+  return minutes * 60 * 1000;
+}
+
+export async function handleMessage(sock, msg) {
+  // Skip own / non-individual messages
+  if (msg.key.fromMe) return;
+  const jid = msg.key.remoteJid;
+  if (!jid || !jid.endsWith('@s.whatsapp.net')) return;
+
+  const phone = phoneFromJid(jid);
+  const name = msg.pushName || phone;
+  const content = extractContent(msg);
+  if (!content) return;
+
+  log.info(`📨 ${name} (${phone}): [${content.type}] ${content.text || content.buttonId || content.rowId || ''}`);
+
+  // Get or create user
+  const { user } = await getOrCreateUser(phone, name);
+  if (!user) return;
+
+  const previousLastMsg = user.last_message_at ? new Date(user.last_message_at).getTime() : 0;
+  const now = Date.now();
+
+  // Update last_message_at
+  await supabase
+    .from('whatsapp_users')
+    .update({ last_message_at: new Date(now).toISOString() })
+    .eq('id', user.id);
+
+  // Save the incoming message
+  await saveMessage({ user, phone, name, content, direction: 'incoming' });
+
+  // === Approval action from an admin ===
+  // Buttons: approve_<phone> / deny_<phone> / promote_<phone>
+  // Text:    /אשר <phone> / /דחה <phone> / /מנהל <phone>
+  if (user.role === 'admin' && user.status === 'approved') {
+    const action = parseApprovalInput(content);
+    if (action) {
+      await handleAdminAction(sock, action, user);
+      return;
+    }
+    if (isAdminCommand(content.text)) {
+      const cmd = parseAdminCommand(content.text);
+      if (cmd) {
+        await handleAdminAction(sock, cmd, user);
+        return;
+      }
+    }
+  }
+
+  // === Status routing ===
+  if (user.status === 'denied') {
+    return; // silent
+  }
+
+  if (user.status === 'pending') {
+    // Count messages from this user
+    const { count } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('direction', 'incoming');
+
+    if (count === 1) {
+      // First-ever message - notify admins + tell user
+      const { data: settings } = await supabase
+        .from('app_settings')
+        .select('pending_message')
+        .limit(1)
+        .single();
+
+      await notifyAdminsNewUser(sock, user, content.text || `(${content.type})`);
+      await sendText(sock, jid, settings?.pending_message || 'הבקשה שלך הועברה לאישור.');
+      await saveMessage({
+        user,
+        phone,
+        name,
+        content: { type: 'text', text: settings?.pending_message },
+        direction: 'outgoing',
+      });
+    }
+    return;
+  }
+
+  // === Approved user ===
+  await routeApprovedMessage(sock, jid, user, content, previousLastMsg, now);
+}
+
+/**
+ * Parse approval-style button/list IDs.
+ */
+function parseApprovalInput(content) {
+  const id = content.buttonId || content.rowId;
+  if (!id) return null;
+  if (id.startsWith('approve_')) return { action: 'approve', target: id.slice(8) };
+  if (id.startsWith('deny_')) return { action: 'deny', target: id.slice(5) };
+  if (id.startsWith('promote_')) return { action: 'promote', target: id.slice(8) };
+  return null;
+}
+
+async function routeApprovedMessage(sock, jid, user, content, previousLastMsg, now) {
+  const inactivityMs = await getInactivityTimeoutMs();
+  const wasInactive = previousLastMsg > 0 && now - previousLastMsg > inactivityMs;
+
+  // Reset to root if user has been inactive
+  if (wasInactive) {
+    log.info(`User ${user.phone_number} was inactive — resetting to root menu`);
+    await supabase
+      .from('whatsapp_users')
+      .update({ current_menu_id: null })
+      .eq('id', user.id);
+    user.current_menu_id = null;
+  }
+
+  // Help command
+  if (content.text && HELP_COMMANDS.includes(content.text.trim().toLowerCase())) {
+    await sendText(
+      sock,
+      jid,
+      '*עזרה - SPIKE Bot* 🤖\n\n' +
+        '📋 שלח */תפריט* או *תפריט* כדי לראות את התפריט הראשי.\n' +
+        '🔢 שלח את המספר של האפשרות הרצויה.\n' +
+        '0️⃣ שלח *0* כדי לחזור אחורה.\n' +
+        '🏠 שלח *#* כדי לחזור לתפריט הראשי.'
+    );
+    return;
+  }
+
+  // Reset commands → send root menu
+  if (content.text && RESET_COMMANDS.includes(content.text.trim().toLowerCase())) {
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  // Home shortcut
+  if (content.text && HOME_INPUTS.includes(content.text.trim())) {
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  // Button / list selection
+  const id = content.buttonId || content.rowId;
+  if (id) {
+    await handleNavigationId(sock, jid, user, id);
+    return;
+  }
+
+  // Back input
+  if (content.text && BACK_INPUTS.includes(content.text.trim().toLowerCase())) {
+    await goBack(sock, jid, user);
+    return;
+  }
+
+  // Numeric reply → map to current menu item
+  const num = content.text ? parseNumericReply(content.text) : null;
+  if (num !== null && num > 0) {
+    await handleNumericSelection(sock, jid, user, num);
+    return;
+  }
+
+  // Anything else → resend current menu (or root)
+  if (user.current_menu_id) {
+    await sendMenu(sock, jid, user, user.current_menu_id);
+  } else {
+    await sendRootMenu(sock, jid, user);
+  }
+}
+
+async function handleNavigationId(sock, jid, user, id) {
+  if (id === 'home') {
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+  if (id === 'back') {
+    await goBack(sock, jid, user);
+    return;
+  }
+  if (id.startsWith('item_')) {
+    const itemId = id.slice(5);
+    await handleItemSelection(sock, jid, user, itemId);
+    return;
+  }
+  if (id.startsWith('menu_')) {
+    const menuId = id.slice(5);
+    await sendMenu(sock, jid, user, menuId);
+    return;
+  }
+  // Unknown → resend current menu
+  if (user.current_menu_id) {
+    await sendMenu(sock, jid, user, user.current_menu_id);
+  } else {
+    await sendRootMenu(sock, jid, user);
+  }
+}
+
+async function handleNumericSelection(sock, jid, user, num) {
+  const menuId = user.current_menu_id;
+  if (!menuId) {
+    // No current menu - send root and let user pick
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  const { data: items } = await supabase
+    .from('menu_items')
+    .select('*')
+    .eq('menu_id', menuId)
+    .order('display_order', { ascending: true });
+
+  if (!items || num > items.length) {
+    await sendText(sock, jid, '❌ אופציה לא תקינה. נסה שוב:');
+    await sendMenu(sock, jid, user, menuId);
+    return;
+  }
+
+  const item = items[num - 1];
+  await handleItemSelection(sock, jid, user, item.id);
+}
+
+async function handleItemSelection(sock, jid, user, itemId) {
+  const { data: item } = await supabase
+    .from('menu_items')
+    .select('*')
+    .eq('id', itemId)
+    .single();
+
+  if (!item) {
+    await sendText(sock, jid, '❌ האפשרות לא נמצאה.');
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  if (item.type === 'submenu') {
+    await sendMenu(sock, jid, user, item.target_menu_id);
+  } else if (item.type === 'file') {
+    await sendFile(sock, jid, user, item);
+  }
+}
+
+async function goBack(sock, jid, user) {
+  if (!user.current_menu_id) {
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  // Find parent menu - any menu containing an item that targets the current one
+  const { data: parentItem } = await supabase
+    .from('menu_items')
+    .select('menu_id')
+    .eq('target_menu_id', user.current_menu_id)
+    .limit(1)
+    .maybeSingle();
+
+  if (!parentItem) {
+    // Already at root or orphan - go home
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
+  await sendMenu(sock, jid, user, parentItem.menu_id);
+}

@@ -1,0 +1,30 @@
+{
+  "name": "spike-bot",
+  "version": "1.0.0",
+  "description": "SPIKE WhatsApp bot - serves menus and PDFs from Google Drive",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node update-and-start.js",
+    "start-no-update": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "preflight": "node preflight.js",
+    "setup-google": "node setup-google.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop spike-bot",
+    "pm2:restart": "pm2 restart spike-bot",
+    "pm2:logs": "pm2 logs spike-bot",
+    "pm2:save": "pm2 save"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.4",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

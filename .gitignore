@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+*.env
+
+# WhatsApp session data (DO NOT commit - contains login credentials!)
+bot/auth/
+bot/baileys_store.json
+bot/store.json
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# PM2
+.pm2/
+ecosystem.local.config.js
+
+# Local config overrides
+web/js/config.local.js
