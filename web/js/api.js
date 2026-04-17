@@ -184,22 +184,30 @@ export async function listMessages({ search = '', phone = null, limit = 200 } = 
 // ============================================
 // Realtime
 // ============================================
+let channelCounter = 0;
+
 export function subscribePending(cb) {
-  return supabase
-    .channel('pending-users')
+  const channel = supabase
+    .channel(`pending-users-${++channelCounter}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'whatsapp_users' },
       () => cb()
     )
     .subscribe();
+  return {
+    unsubscribe: () => supabase.removeChannel(channel),
+  };
 }
 
 export function subscribeMessages(cb) {
-  return supabase
-    .channel('messages-stream')
+  const channel = supabase
+    .channel(`messages-stream-${++channelCounter}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) =>
       cb(payload.new)
     )
     .subscribe();
+  return {
+    unsubscribe: () => supabase.removeChannel(channel),
+  };
 }
