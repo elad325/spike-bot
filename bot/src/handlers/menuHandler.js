@@ -2,6 +2,7 @@ import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
 import { numberToEmoji } from '../utils/format.js';
 import { downloadDriveFile, markFileMissing } from '../googleDrive.js';
+import { generateWAMessageFromContent, proto } from '@whiskeysockets/baileys';
 
 /**
  * Send a plain text message and log it.
@@ -43,8 +44,9 @@ export async function sendRootMenu(sock, jid, user) {
 }
 
 /**
- * Send a menu by ID with numbered text options + navigation hints.
- * Also tries to send interactive buttons (works for some accounts).
+ * Send a menu by ID. Tries the modern interactiveMessage / native-flow protocol
+ * first (renders as native buttons or a list on supporting clients) and falls
+ * back to plain numbered text if that fails for any reason.
  */
 export async function sendMenu(sock, jid, user, menuId) {
   const { data: menu } = await supabase
@@ -78,7 +80,8 @@ export async function sendMenu(sock, jid, user, menuId) {
     })
     .eq('id', user.id);
 
-  // Build text body
+  // Build text body — used both as the interactive body AND as the text
+  // fallback if the recipient's client cannot render native flow buttons.
   const lines = [`*${menu.name}*`, ''];
   items.forEach((item, idx) => {
     const icon = item.type === 'submenu' ? '📂' : '📄';
@@ -94,63 +97,106 @@ export async function sendMenu(sock, jid, user, menuId) {
 
   const bodyText = lines.join('\n');
 
-  // Try sending interactive buttons (max 3 buttons in WhatsApp)
-  // For more than 3 items use list message
   let sent = false;
-
-  if (items.length <= 3 && !menu.is_root) {
-    try {
-      await sock.sendMessage(jid, {
-        text: bodyText,
-        footer: 'בחר אפשרות:',
-        buttons: items.slice(0, 3).map((item, idx) => ({
-          buttonId: `item_${item.id}`,
-          buttonText: { displayText: `${idx + 1}. ${item.label}` },
-          type: 1,
-        })),
-        headerType: 1,
-      });
-      sent = true;
-    } catch (err) {
-      log.debug('Buttons failed, will fallback to text:', err.message);
-    }
-  } else {
-    try {
-      const rows = items.map((item, idx) => ({
-        rowId: `item_${item.id}`,
-        title: `${idx + 1}. ${item.label}`,
-        description: item.type === 'submenu' ? '📂 תפריט משנה' : '📄 קובץ',
-      }));
-
-      if (!menu.is_root) {
-        rows.push({ rowId: 'back', title: '🔙 חזרה', description: 'חזרה לתפריט הקודם' });
-        rows.push({ rowId: 'home', title: '🏠 תפריט ראשי', description: 'חזרה להתחלה' });
-      }
-
-      await sock.sendMessage(jid, {
-        text: bodyText,
-        footer: 'SPIKE Bot',
-        title: menu.name,
-        buttonText: '📋 הצג אפשרויות',
-        sections: [
-          {
-            title: menu.name,
-            rows,
-          },
-        ],
-      });
-      sent = true;
-    } catch (err) {
-      log.debug('List message failed, will fallback to text:', err.message);
-    }
+  try {
+    await sendNativeFlowMenu(sock, jid, menu, items, bodyText);
+    sent = true;
+  } catch (err) {
+    log.warn(`Native flow menu failed (will fallback to text): ${err.message}`);
   }
 
   if (!sent) {
-    // Plain text fallback
     await sendText(sock, jid, bodyText);
   }
 
   await logOutgoing(user, user.phone_number, 'menu', `[${menu.name}]`);
+}
+
+/**
+ * Render the menu as an interactive (native-flow) message.
+ *  - ≤3 items → quick_reply buttons (renders as native tap-to-reply chips)
+ *  - 4+ items → single_select list (renders as a dropdown selector)
+ *
+ * Selections come back as `interactiveResponseMessage` and are decoded by
+ * `extractContent` in messageHandler.js — the `id` field matches what we set
+ * here (e.g. `item_<uuid>`, `back`, `home`).
+ */
+async function sendNativeFlowMenu(sock, jid, menu, items, bodyText) {
+  let nativeFlowButtons;
+
+  if (items.length <= 3) {
+    // Quick-reply chips. Append a "home" chip when not at root and we have
+    // room for it.
+    nativeFlowButtons = items.slice(0, 3).map((item, idx) => ({
+      name: 'quick_reply',
+      buttonParamsJson: JSON.stringify({
+        display_text: `${idx + 1}. ${item.label}`,
+        id: `item_${item.id}`,
+      }),
+    }));
+
+    if (!menu.is_root && nativeFlowButtons.length < 3) {
+      nativeFlowButtons.push({
+        name: 'quick_reply',
+        buttonParamsJson: JSON.stringify({ display_text: '🏠 תפריט ראשי', id: 'home' }),
+      });
+    }
+  } else {
+    // Single-select list (up to 10 rows per section).
+    const rows = items.map((item, idx) => ({
+      header: '',
+      title: `${idx + 1}. ${item.label}`,
+      description: item.type === 'submenu' ? '📂 תפריט משנה' : '📄 קובץ',
+      id: `item_${item.id}`,
+    }));
+
+    if (!menu.is_root) {
+      rows.push({ header: '', title: '🔙 חזרה', description: 'חזרה לתפריט הקודם', id: 'back' });
+      rows.push({ header: '', title: '🏠 תפריט ראשי', description: 'חזרה להתחלה', id: 'home' });
+    }
+
+    nativeFlowButtons = [
+      {
+        name: 'single_select',
+        buttonParamsJson: JSON.stringify({
+          title: '📋 הצג אפשרויות',
+          sections: [{ title: menu.name, rows }],
+        }),
+      },
+    ];
+  }
+
+  const interactiveMessage = proto.Message.InteractiveMessage.create({
+    body: proto.Message.InteractiveMessage.Body.create({ text: bodyText }),
+    footer: proto.Message.InteractiveMessage.Footer.create({ text: 'SPIKE Bot' }),
+    header: proto.Message.InteractiveMessage.Header.create({
+      title: menu.name,
+      subtitle: '',
+      hasMediaAttachment: false,
+    }),
+    nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
+      buttons: nativeFlowButtons,
+      messageParamsJson: '',
+    }),
+  });
+
+  const wam = generateWAMessageFromContent(
+    jid,
+    {
+      viewOnceMessage: {
+        message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
+          interactiveMessage,
+        },
+      },
+    },
+    { userJid: sock.user?.id }
+  );
+
+  await sock.relayMessage(jid, wam.message, { messageId: wam.key.id });
 }
 
 /**
