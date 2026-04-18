@@ -27,6 +27,7 @@ export async function renderMenusPage(container) {
           </button>
         </div>
       </div>
+      <div id="root-warning"></div>
       <div class="menu-builder">
         <div class="card" id="menus-sidebar">
           <div class="card-header">
@@ -50,15 +51,54 @@ export async function renderMenusPage(container) {
 
   const sidebar = container.querySelector('#menus-list');
   const detail = container.querySelector('#menu-detail');
+  const warningHost = container.querySelector('#root-warning');
 
   async function refresh() {
     menus = await listMenus();
     renderSidebar();
+    renderRootWarning();
     if (selectedMenuId && !menus.find((m) => m.id === selectedMenuId)) {
       selectedMenuId = null;
     }
     if (selectedMenuId) await renderDetail(selectedMenuId);
     else renderEmptyDetail();
+  }
+
+  // Show a prominent banner if there are menus but none is the root menu —
+  // without a root, the bot replies "הבוט עדיין לא הוגדר" to every message.
+  function renderRootWarning() {
+    const hasRoot = menus.some((m) => m.is_root);
+    if (menus.length === 0 || hasRoot) {
+      warningHost.innerHTML = '';
+      return;
+    }
+    const options = menus
+      .map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`)
+      .join('');
+    warningHost.innerHTML = `
+      <div class="card" style="border:1px solid var(--warning);background:rgba(251,191,36,.06);margin-bottom:1rem">
+        <div style="display:flex;align-items:center;gap:.85rem;flex-wrap:wrap">
+          <div style="font-size:1.5rem">⚠️</div>
+          <div style="flex:1;min-width:240px">
+            <div style="font-weight:600;color:var(--warning)">אין תפריט ראשי מוגדר</div>
+            <div style="color:var(--text-muted);font-size:.9rem;margin-top:.15rem">
+              ללא תפריט ראשי הבוט יענה "הבוט עדיין לא הוגדר" לכל הודעה. בחר איזה תפריט ישמש כראשי:
+            </div>
+          </div>
+          <select id="root-picker" style="min-width:180px">${options}</select>
+          <button class="btn btn-primary btn-sm" id="root-apply">הגדר כראשי</button>
+        </div>
+      </div>`;
+    warningHost.querySelector('#root-apply').addEventListener('click', async () => {
+      const id = warningHost.querySelector('#root-picker').value;
+      try {
+        await updateMenu(id, { is_root: true });
+        toast('תפריט ראשי הוגדר', 'success');
+        await refresh();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
   }
 
   function renderSidebar() {
@@ -206,14 +246,19 @@ export async function renderMenusPage(container) {
 
   // === Menu CRUD dialogs ===
   function newMenuDialog() {
+    // Pre-check is_root when no root exists yet — this is almost always what
+    // the user wants for their first menu, and avoids the "bot not configured"
+    // trap. They can untick it for non-root menus.
+    const noRootYet = !menus.some((m) => m.is_root);
     const body = `
       <label><span>שם התפריט</span>
         <input type="text" id="new-menu-name" placeholder="לדוגמה: תפריט ראשי" autofocus />
       </label>
       <label style="margin-top:.85rem;flex-direction:row;align-items:center;gap:.5rem">
-        <input type="checkbox" id="new-menu-root" style="width:auto" />
+        <input type="checkbox" id="new-menu-root" style="width:auto" ${noRootYet ? 'checked' : ''} />
         <span>תפריט ראשי (זה התפריט שיוצג כשמשתמש כותב לבוט)</span>
       </label>
+      ${noRootYet ? '<p style="margin-top:.5rem;color:var(--text-muted);font-size:.85rem">💡 סומן אוטומטית כי אין עדיין תפריט ראשי. בטל סימון אם זה תפריט משנה.</p>' : ''}
     `;
     const footer = `<button class="btn btn-ghost" data-modal-close>ביטול</button>
       <button class="btn btn-primary" id="save-new-menu">צור</button>`;
