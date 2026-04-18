@@ -2,7 +2,6 @@ import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
 import { numberToEmoji } from '../utils/format.js';
 import { downloadDriveFile, markFileMissing } from '../googleDrive.js';
-import { generateWAMessageFromContent, proto } from '@whiskeysockets/baileys';
 
 /**
  * Send a plain text message and log it.
@@ -44,9 +43,13 @@ export async function sendRootMenu(sock, jid, user) {
 }
 
 /**
- * Send a menu by ID. Tries the modern interactiveMessage / native-flow protocol
- * first (renders as native buttons or a list on supporting clients) and falls
- * back to plain numbered text if that fails for any reason.
+ * Send a menu by ID as a plain numbered text message.
+ *
+ * We intentionally don't try interactiveMessage / nativeFlow / buttons /
+ * listMessage here — WhatsApp silently drops those payloads on personal
+ * accounts (they're accepted by the server but never delivered to the
+ * recipient, so we can't even fall back). Numbered text is the only
+ * format that works reliably end-to-end on a Baileys-linked account.
  */
 export async function sendMenu(sock, jid, user, menuId) {
   const { data: menu } = await supabase
@@ -80,8 +83,7 @@ export async function sendMenu(sock, jid, user, menuId) {
     })
     .eq('id', user.id);
 
-  // Build text body — used both as the interactive body AND as the text
-  // fallback if the recipient's client cannot render native flow buttons.
+  // Build numbered text body
   const lines = [`*${menu.name}*`, ''];
   items.forEach((item, idx) => {
     const icon = item.type === 'submenu' ? '📂' : '📄';
@@ -95,108 +97,8 @@ export async function sendMenu(sock, jid, user, menuId) {
   }
   lines.push('💬 שלח את המספר של האפשרות הרצויה');
 
-  const bodyText = lines.join('\n');
-
-  let sent = false;
-  try {
-    await sendNativeFlowMenu(sock, jid, menu, items, bodyText);
-    sent = true;
-  } catch (err) {
-    log.warn(`Native flow menu failed (will fallback to text): ${err.message}`);
-  }
-
-  if (!sent) {
-    await sendText(sock, jid, bodyText);
-  }
-
+  await sendText(sock, jid, lines.join('\n'));
   await logOutgoing(user, user.phone_number, 'menu', `[${menu.name}]`);
-}
-
-/**
- * Render the menu as an interactive (native-flow) message.
- *  - ≤3 items → quick_reply buttons (renders as native tap-to-reply chips)
- *  - 4+ items → single_select list (renders as a dropdown selector)
- *
- * Selections come back as `interactiveResponseMessage` and are decoded by
- * `extractContent` in messageHandler.js — the `id` field matches what we set
- * here (e.g. `item_<uuid>`, `back`, `home`).
- */
-async function sendNativeFlowMenu(sock, jid, menu, items, bodyText) {
-  let nativeFlowButtons;
-
-  if (items.length <= 3) {
-    // Quick-reply chips. Append a "home" chip when not at root and we have
-    // room for it.
-    nativeFlowButtons = items.slice(0, 3).map((item, idx) => ({
-      name: 'quick_reply',
-      buttonParamsJson: JSON.stringify({
-        display_text: `${idx + 1}. ${item.label}`,
-        id: `item_${item.id}`,
-      }),
-    }));
-
-    if (!menu.is_root && nativeFlowButtons.length < 3) {
-      nativeFlowButtons.push({
-        name: 'quick_reply',
-        buttonParamsJson: JSON.stringify({ display_text: '🏠 תפריט ראשי', id: 'home' }),
-      });
-    }
-  } else {
-    // Single-select list (up to 10 rows per section).
-    const rows = items.map((item, idx) => ({
-      header: '',
-      title: `${idx + 1}. ${item.label}`,
-      description: item.type === 'submenu' ? '📂 תפריט משנה' : '📄 קובץ',
-      id: `item_${item.id}`,
-    }));
-
-    if (!menu.is_root) {
-      rows.push({ header: '', title: '🔙 חזרה', description: 'חזרה לתפריט הקודם', id: 'back' });
-      rows.push({ header: '', title: '🏠 תפריט ראשי', description: 'חזרה להתחלה', id: 'home' });
-    }
-
-    nativeFlowButtons = [
-      {
-        name: 'single_select',
-        buttonParamsJson: JSON.stringify({
-          title: '📋 הצג אפשרויות',
-          sections: [{ title: menu.name, rows }],
-        }),
-      },
-    ];
-  }
-
-  const interactiveMessage = proto.Message.InteractiveMessage.create({
-    body: proto.Message.InteractiveMessage.Body.create({ text: bodyText }),
-    footer: proto.Message.InteractiveMessage.Footer.create({ text: 'SPIKE Bot' }),
-    header: proto.Message.InteractiveMessage.Header.create({
-      title: menu.name,
-      subtitle: '',
-      hasMediaAttachment: false,
-    }),
-    nativeFlowMessage: proto.Message.InteractiveMessage.NativeFlowMessage.create({
-      buttons: nativeFlowButtons,
-      messageParamsJson: '',
-    }),
-  });
-
-  const wam = generateWAMessageFromContent(
-    jid,
-    {
-      viewOnceMessage: {
-        message: {
-          messageContextInfo: {
-            deviceListMetadata: {},
-            deviceListMetadataVersion: 2,
-          },
-          interactiveMessage,
-        },
-      },
-    },
-    { userJid: sock.user?.id }
-  );
-
-  await sock.relayMessage(jid, wam.message, { messageId: wam.key.id });
 }
 
 /**
