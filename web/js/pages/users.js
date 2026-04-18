@@ -127,13 +127,13 @@ export async function renderUsersPage(container) {
 
     return `
       <tr>
-        <td><div style="display:flex;align-items:center;gap:.6rem"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:600">${initial}</div>${escapeHtml(u.whatsapp_name || '-')}</div></td>
-        <td style="direction:ltr;text-align:right">${formatPhone(u.phone_number)}</td>
-        <td><span class="tag ${status.cls}">${status.text}</span></td>
-        <td><span class="tag ${role.cls}">${role.text}</span></td>
-        <td style="color:var(--text-muted);font-size:.85rem">${formatRelative(u.created_at)}</td>
-        <td style="color:var(--text-muted);font-size:.85rem">${u.last_message_at ? formatRelative(u.last_message_at) : '-'}</td>
-        <td style="text-align:end"><div style="display:inline-flex;gap:.25rem">${actions.join('')}</div></td>
+        <td data-label="שם"><div style="display:flex;align-items:center;gap:.6rem"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${initial}</div>${escapeHtml(u.whatsapp_name || '-')}</div></td>
+        <td data-label="מספר" style="direction:ltr;text-align:right">${formatPhone(u.phone_number)}</td>
+        <td data-label="סטטוס"><span class="tag ${status.cls}">${status.text}</span></td>
+        <td data-label="תפקיד"><span class="tag ${role.cls}">${role.text}</span></td>
+        <td data-label="הצטרף" style="color:var(--text-muted);font-size:.85rem">${formatRelative(u.created_at)}</td>
+        <td data-label="הודעה אחרונה" style="color:var(--text-muted);font-size:.85rem">${u.last_message_at ? formatRelative(u.last_message_at) : '-'}</td>
+        <td style="text-align:end"><div style="display:inline-flex;gap:.25rem;flex-wrap:wrap;justify-content:flex-end">${actions.join('')}</div></td>
       </tr>
     `;
   }

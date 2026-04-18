@@ -976,9 +976,53 @@ textarea {
 }
 
 /* ============================================
-   Mobile
+   Sidebar backdrop (mobile drawer overlay)
+   ============================================ */
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.sidebar-backdrop.show {
+  display: block;
+  opacity: 1;
+}
+
+/* ============================================
+   Tablet (≤1024px) — tighten layout
+   ============================================ */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-w: 220px;
+  }
+
+  .main-content {
+    padding: 1.25rem;
+  }
+
+  .menu-builder {
+    grid-template-columns: 240px 1fr;
+  }
+}
+
+/* ============================================
+   Mobile (≤768px) — drawer + reflow
    ============================================ */
 @media (max-width: 768px) {
+  :root {
+    --header-h: 56px;
+  }
+
+  html {
+    font-size: 14.5px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-areas:
@@ -986,35 +1030,397 @@ textarea {
       'main';
   }
 
-  .sidebar {
-    position: fixed;
-    inset-inline-start: 0;
-    top: var(--header-h);
-    bottom: 0;
-    width: var(--sidebar-w);
-    z-index: 50;
-    transform: translateX(100%);
-    transition: transform var(--transition);
-    box-shadow: var(--shadow-lg);
+  /* Header tightens up: smaller padding, status badge becomes a dot */
+  .app-header {
+    padding: 0 0.6rem;
+    padding-inline-start: max(0.6rem, env(safe-area-inset-left));
+    padding-inline-end: max(0.6rem, env(safe-area-inset-right));
   }
 
-  [dir='rtl'] .sidebar {
-    transform: translateX(-100%);
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
+  .header-right,
+  .header-left {
+    gap: 0.25rem;
   }
 
   .nav-toggle {
     display: inline-flex;
   }
 
-  .main-content {
-    padding: 1rem;
+  .brand {
+    font-size: 1rem;
+    gap: 0.45rem;
   }
 
+  .bot-status {
+    padding: 0.3rem 0.55rem;
+    font-size: 0;             /* hide label on mobile, keep dot */
+    gap: 0;
+    width: 28px;
+    height: 28px;
+    justify-content: center;
+  }
+
+  .bot-status .status-text {
+    display: none;
+  }
+
+  .bot-status .status-dot {
+    width: 10px;
+    height: 10px;
+  }
+
+  /* Bigger tap targets per Apple/Google guidelines (44px) */
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Sidebar becomes a slide-in drawer */
+  .sidebar {
+    position: fixed;
+    inset-inline-start: 0;
+    top: var(--header-h);
+    bottom: 0;
+    width: 80vw;
+    max-width: 300px;
+    z-index: 50;
+    padding: 1rem 0.85rem;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* Off-screen direction flips for RTL (drawer is on the right) */
+  [dir='rtl'] .sidebar {
+    inset-inline-start: auto;
+    inset-inline-end: 0;
+    transform: translateX(100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0) !important;
+  }
+
+  /* Bigger nav items for finger taps */
+  .nav-item {
+    padding: 0.85rem 0.85rem;
+    font-size: 1rem;
+  }
+
+  /* Main content respects safe areas + tighter padding */
+  .main-content {
+    padding: 1rem;
+    padding-inline-start: max(1rem, env(safe-area-inset-left));
+    padding-inline-end: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  /* Page header */
+  .page-header {
+    margin-bottom: 1rem;
+    gap: 0.75rem;
+  }
+
+  .page-title {
+    font-size: 1.3rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.85rem;
+  }
+
+  .page-actions {
+    width: 100%;
+  }
+
+  .page-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  /* Cards take less inner padding */
+  .card {
+    padding: 0.85rem;
+    border-radius: var(--radius);
+  }
+
+  .card-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  /* Menu builder collapses; menu list scrolls horizontally */
   .menu-builder {
     grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  #menus-sidebar .menu-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.4rem;
+    padding-bottom: 0.25rem;
+    margin: 0 -0.85rem;
+    padding-inline-start: 0.85rem;
+    padding-inline-end: 0.85rem;
+    scrollbar-width: thin;
+  }
+
+  #menus-sidebar .menu-list-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* Menu item rows reflow: actions go to a second line */
+  .menu-item-row {
+    flex-wrap: wrap;
+    padding: 0.7rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .menu-item-row .item-info {
+    flex: 1 1 60%;
+  }
+
+  .menu-item-row .item-actions {
+    flex-wrap: wrap;
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px dashed var(--border);
+    padding-top: 0.5rem;
+    margin-top: 0.25rem;
+  }
+
+  .menu-item-row .item-actions .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Filter bar: full-width search (override inline max-width) */
+  .filter-bar {
+    gap: 0.5rem;
+  }
+
+  .filter-bar input,
+  .filter-bar select,
+  .filter-bar input[style*='max-width'] {
+    min-width: 0;
+    width: 100%;
+    max-width: none !important;
+    flex: 1 1 100%;
+  }
+
+  /* Modals: near-fullscreen on phones */
+  .modal-container {
+    padding: 0;
+    align-items: flex-end;     /* slide-up sheet feel */
+  }
+
+  .modal {
+    max-width: none;
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: modalInMobile 0.25s ease;
+  }
+
+  @keyframes modalInMobile {
+    from {
+      transform: translateY(100%);
+      opacity: 0.5;
+    }
+  }
+
+  .modal-header,
+  .modal-body,
+  .modal-footer {
+    padding-inline: 1rem;
+  }
+
+  .modal-footer {
+    flex-direction: column-reverse;
+    gap: 0.5rem;
+  }
+
+  .modal-footer .btn {
+    width: 100%;
+  }
+
+  /* Toast pinned to bottom-center, full-width with margin */
+  .toast-container {
+    inset-inline: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  .toast {
+    max-width: none;
+  }
+
+  /* Stat cards: 2 per row, tighter */
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+  }
+
+  .stat-card {
+    padding: 0.85rem;
+  }
+
+  .stat-card .value {
+    font-size: 1.4rem;
+  }
+
+  /* Messages list: header wraps, smaller meta */
+  .message-row {
+    padding: 0.7rem 0.85rem;
+    gap: 0.6rem;
+  }
+
+  .message-row .header {
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+  }
+
+  .message-row .meta:last-child {
+    margin-inline-start: 0 !important;
+    width: 100%;
+    margin-top: 0.1rem;
+  }
+
+  /* ================================
+     Tables → card layout
+     The JS adds data-label="..." to each <td>; mobile turns each row
+     into a vertical card with the label shown next to the value.
+     ================================ */
+  .table-wrap {
+    border: none;
+    background: transparent;
+    border-radius: 0;
+    overflow: visible;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+    width: 100%;
+  }
+
+  .table tr {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 0.6rem;
+    padding: 0.75rem 0.85rem;
+  }
+
+  .table tbody tr:hover {
+    background: var(--bg-elev);
+  }
+
+  .table td {
+    border: none !important;
+    padding: 0.35rem 0;
+    text-align: start !important;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .table td::before {
+    content: attr(data-label);
+    flex: 0 0 35%;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* Cells without data-label (e.g. action rows) span full width */
+  .table td:not([data-label]) {
+    padding-top: 0.55rem;
+    border-top: 1px dashed var(--border) !important;
+    margin-top: 0.4rem;
+  }
+
+  .table td:not([data-label])::before {
+    content: none;
+  }
+
+  .table td:not([data-label]) > div {
+    flex-wrap: wrap !important;
+    width: 100%;
+    gap: 0.4rem !important;
+  }
+
+  .table td:not([data-label]) .btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Tabs row in users page: scroll horizontally instead of wrapping */
+  .filter-bar > div[style*='flex-wrap'] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    width: 100%;
+  }
+}
+
+/* ============================================
+   Small phones (≤420px) — squeeze further
+   ============================================ */
+@media (max-width: 420px) {
+  .page-title {
+    font-size: 1.15rem;
+  }
+
+  .brand span {
+    display: none;       /* logo only — saves header space */
+  }
+
+  .menu-item-row .item-actions .btn {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.55rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ============================================
+   Landscape phones — keep modal centred (no sheet)
+   ============================================ */
+@media (max-width: 768px) and (orientation: landscape) {
+  .modal-container {
+    align-items: center;
+    padding: 0.5rem;
+  }
+
+  .modal {
+    border-radius: var(--radius-lg);
+    max-height: 95vh;
+  }
+}
+
+/* ============================================
+   Touch hint — disable hover-only effects on touch
+   ============================================ */
+@media (hover: none) {
+  .menu-list-item:hover,
+  .nav-item:hover,
+  .btn:hover:not(:disabled),
+  .btn-ghost:hover:not(:disabled),
+  .icon-btn:hover {
+    background: inherit;
+    color: inherit;
   }
 }

@@ -72,10 +72,40 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 });
 
 // ============================================
-// Sidebar toggle (mobile)
+// Sidebar toggle (mobile drawer)
 // ============================================
+const sidebarEl = document.getElementById('sidebar');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+function setSidebarOpen(open) {
+  sidebarEl.classList.toggle('open', open);
+  sidebarBackdrop.classList.toggle('show', open);
+  // Lock background scroll while drawer is open on mobile
+  document.body.style.overflow = open ? 'hidden' : '';
+}
+
 document.getElementById('nav-toggle').addEventListener('click', () => {
-  document.getElementById('sidebar').classList.toggle('open');
+  setSidebarOpen(!sidebarEl.classList.contains('open'));
+});
+
+// Tap the backdrop → close drawer
+sidebarBackdrop.addEventListener('click', () => setSidebarOpen(false));
+
+// Tapping any nav link should close the drawer (the click navigates first
+// thanks to the hash router, so the close happens after the page swaps)
+sidebarEl.querySelectorAll('.nav-item').forEach((link) =>
+  link.addEventListener('click', () => setSidebarOpen(false))
+);
+
+// Escape closes the drawer
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && sidebarEl.classList.contains('open')) setSidebarOpen(false);
+});
+
+// Resize back to desktop → drop the open state so styles apply cleanly
+const desktopMQ = window.matchMedia('(min-width: 769px)');
+desktopMQ.addEventListener('change', (e) => {
+  if (e.matches) setSidebarOpen(false);
 });
 
 // ============================================
