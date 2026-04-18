@@ -164,6 +164,9 @@ export async function renderMenusPage(container) {
       area.querySelectorAll('[data-edit]').forEach((b) =>
         b.addEventListener('click', () => editItemDialog(menu, items.find((i) => i.id === b.dataset.edit)))
       );
+      area.querySelectorAll('[data-replace]').forEach((b) =>
+        b.addEventListener('click', () => quickReplaceFile(items.find((i) => i.id === b.dataset.replace)))
+      );
       area.querySelectorAll('[data-delete]').forEach((b) =>
         b.addEventListener('click', async () => {
           const ok = await confirmDialog({
@@ -238,10 +241,35 @@ export async function renderMenusPage(container) {
           <div class="meta">${item.type === 'submenu' ? '↳ ' : ''}${escapeHtml(target)}</div>
         </div>
         <div class="item-actions">
+          ${item.type === 'file' ? `<button class="btn btn-sm btn-outline" data-replace="${item.id}" title="החלף קובץ ישירות">📁 החלף קובץ</button>` : ''}
           <button class="btn btn-sm btn-ghost" data-edit="${item.id}">עריכה</button>
           <button class="btn btn-sm btn-ghost" data-delete="${item.id}" style="color:var(--danger)">מחק</button>
         </div>
       </div>`;
+  }
+
+  // Quick "Replace File" action — opens the Drive picker, swaps the
+  // menu_items.drive_file_id reference to the new file, and clears the
+  // "missing" flag. The old Drive file is left untouched.
+  async function quickReplaceFile(item) {
+    if (!item || item.type !== 'file') return;
+    if (!isGoogleConfigured()) {
+      toast('יש להגדיר Google Client ID + API Key בהגדרות תחילה', 'error');
+      return;
+    }
+    try {
+      const result = await pickPdfFromDrive();
+      if (!result) return;
+      await updateMenuItem(item.id, {
+        drive_file_id: result.id,
+        drive_file_name: result.name,
+        drive_file_missing: false,
+      });
+      toast(`הקובץ הוחלף ל-"${result.name}"`, 'success');
+      renderDetail(selectedMenuId);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   }
 
   // === Menu CRUD dialogs ===

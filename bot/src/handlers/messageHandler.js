@@ -7,6 +7,12 @@ import {
   sendApprovalResult,
 } from './notifyAdmins.js';
 import { handleAdminAction, isAdminCommand, parseAdminCommand } from './adminActions.js';
+import {
+  enterAdminMenu,
+  isAdminEntryCommand,
+  isInAdminFlow,
+  handleAdminInput,
+} from './adminMenu.js';
 
 const RESET_COMMANDS = ['תפריט', '/תפריט', '/menu', '/start', 'start', 'היי', 'שלום'];
 const HELP_COMMANDS = ['/עזרה', '/help', 'עזרה', 'help'];
@@ -190,6 +196,17 @@ export async function handleMessage(sock, msg) {
         await handleAdminAction(sock, cmd, user);
         return;
       }
+    }
+
+    // Admin-menu state machine: entry command opens it, otherwise route any
+    // message (including media uploads) through the flow handler.
+    if (isAdminEntryCommand(content.text)) {
+      await enterAdminMenu(sock, jid, user);
+      return;
+    }
+    if (isInAdminFlow(user)) {
+      const handled = await handleAdminInput(sock, jid, user, content, msg);
+      if (handled) return;
     }
   }
 
