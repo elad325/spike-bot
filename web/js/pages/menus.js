@@ -314,29 +314,78 @@ export async function renderMenusPage(container) {
   }
 
   function addSubmenuDialog(parentMenu) {
-    const otherMenus = menus.filter((m) => m.id !== parentMenu.id);
+    // Build top-down: let the user either pick an existing menu OR create a
+    // new sub-menu inline. The old "close dialog → create menu → reopen"
+    // ritual was confusing because it forced bottom-up construction.
+    function renderOptions() {
+      return menus
+        .filter((m) => m.id !== parentMenu.id)
+        .map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`)
+        .join('');
+    }
+
     const body = `
-      <label><span>טקסט הכפתור</span>
+      <label><span>טקסט הכפתור (מה שהמשתמש יראה)</span>
         <input type="text" id="item-label" placeholder="לדוגמה: הזמנת תור" autofocus />
       </label>
-      <label style="margin-top:.85rem"><span>בחר תפריט יעד</span>
-        <select id="target-menu">
-          <option value="">-- בחר תפריט --</option>
-          ${otherMenus.map((m) => `<option value="${m.id}">${escapeHtml(m.name)}</option>`).join('')}
-        </select>
+      <label style="margin-top:.85rem"><span>תפריט יעד</span>
+        <div style="display:flex;gap:.5rem;align-items:stretch">
+          <select id="target-menu" style="flex:1">
+            <option value="">-- בחר תפריט קיים --</option>
+            ${renderOptions()}
+          </select>
+          <button class="btn btn-outline btn-sm" id="create-target" type="button" style="white-space:nowrap">+ צור חדש</button>
+        </div>
       </label>
-      <p style="margin-top:.75rem;color:var(--text-muted);font-size:.85rem">
-        💡 אם התפריט שאתה רוצה לא קיים, סגור את החלון, צור אותו, ואז חזור לכאן.
-      </p>
+      <div id="inline-create" class="hidden" style="margin-top:.75rem;padding:.75rem;background:var(--bg-hover);border-radius:var(--radius)">
+        <label style="margin:0"><span style="font-size:.85rem">שם התפריט החדש</span>
+          <input type="text" id="new-target-name" placeholder="לדוגמה: רשימת תורים" />
+        </label>
+        <div style="display:flex;gap:.5rem;margin-top:.5rem">
+          <button class="btn btn-primary btn-sm" id="confirm-new-target" type="button">צור</button>
+          <button class="btn btn-ghost btn-sm" id="cancel-new-target" type="button">ביטול</button>
+        </div>
+      </div>
     `;
     const footer = `<button class="btn btn-ghost" data-modal-close>ביטול</button>
       <button class="btn btn-primary" id="save-item">הוסף</button>`;
     const m = openModal({ title: 'הוספת תת-תפריט', body, footer, size: 'sm' });
+
+    const inline = m.box.querySelector('#inline-create');
+    const select = m.box.querySelector('#target-menu');
+
+    m.box.querySelector('#create-target').addEventListener('click', () => {
+      inline.classList.remove('hidden');
+      m.box.querySelector('#new-target-name').focus();
+    });
+    m.box.querySelector('#cancel-new-target').addEventListener('click', () => {
+      inline.classList.add('hidden');
+      m.box.querySelector('#new-target-name').value = '';
+    });
+    m.box.querySelector('#confirm-new-target').addEventListener('click', async () => {
+      const name = m.box.querySelector('#new-target-name').value.trim();
+      if (!name) {
+        toast('שם התפריט חובה', 'error');
+        return;
+      }
+      try {
+        const created = await createMenu(name, false); // sub-menu, never root
+        menus = await listMenus(); // refresh local cache so dropdown is current
+        select.innerHTML = `<option value="">-- בחר תפריט קיים --</option>${renderOptions()}`;
+        select.value = created.id;
+        inline.classList.add('hidden');
+        m.box.querySelector('#new-target-name').value = '';
+        toast(`תפריט "${name}" נוצר`, 'success');
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
+
     m.box.querySelector('#save-item').addEventListener('click', async () => {
       const label = m.box.querySelector('#item-label').value.trim();
-      const target = m.box.querySelector('#target-menu').value;
+      const target = select.value;
       if (!label || !target) {
-        toast('יש למלא את כל השדות', 'error');
+        toast('יש למלא טקסט ולבחור/ליצור תפריט יעד', 'error');
         return;
       }
       try {
@@ -350,6 +399,7 @@ export async function renderMenusPage(container) {
         });
         closeModal();
         toast('הפריט נוסף', 'success');
+        await refresh(); // sidebar may have a new menu to show
         renderDetail(selectedMenuId);
       } catch (err) {
         toast(err.message, 'error');
