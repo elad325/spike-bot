@@ -779,119 +779,336 @@ textarea {
 }
 
 /* ============================================
-   Menu builder
+   Menu builder — single tree view
    ============================================ */
-.menu-builder {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  gap: 1.25rem;
+
+/* Root warning banner (shown when menus exist but none is is_root) */
+.root-warning-card {
+  border: 1px solid var(--warning);
+  background: rgba(251, 191, 36, 0.06);
+  margin-bottom: 1rem;
+}
+
+.root-warning-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+/* The card containing the whole tree */
+.menu-tree-card {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Root header — always visible at top of tree */
+.tree-root-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, var(--primary-soft), transparent);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.tree-root-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
-.menu-builder > .card {
-  min-width: 0;
-  max-width: 100%;
+.tree-root-icon {
+  font-size: 1.4rem;
 }
 
-.menu-list {
+.tree-root-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.tree-meta-pill {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0.15rem 0.55rem;
+  background: var(--bg-hover);
+  border-radius: 999px;
+}
+
+.tree-root-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+/* The tree body */
+.menu-tree {
+  padding: 0.85rem 1rem 1rem;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  min-width: 0;
 }
 
-.menu-list-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem 0.85rem;
-  background: var(--bg-elev);
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition: all var(--transition);
-}
-
-.menu-list-item:hover {
-  border-color: var(--border-strong);
-}
-
-.menu-list-item.active {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-  color: var(--primary);
-}
-
-.menu-list-item .name {
-  flex: 1;
-  font-weight: 500;
-}
-
-.menu-list-item .root-badge {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.5rem;
-  background: var(--accent);
-  color: white;
-  border-radius: 999px;
-  font-weight: 700;
-}
-
-.menu-items-area {
+/* Each item is a row + (optionally) a children container */
+.tree-item {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
-.menu-item-row {
+.tree-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
   background: var(--bg-elev);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   min-width: 0;
+  position: relative;
+  transition: all var(--transition);
 }
 
-.menu-item-row .grip {
-  cursor: grab;
+.tree-row:hover {
+  border-color: var(--border-strong);
+}
+
+.tree-row.dragging {
+  opacity: 0.4;
+}
+
+/* Drop indicator: renders a 2px coloured line on the relevant edge */
+.tree-row.drop-before::before,
+.tree-row.drop-after::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  height: 3px;
+  background: var(--primary);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.tree-row.drop-before::before { top: -3px; }
+.tree-row.drop-after::after { bottom: -3px; }
+
+/* Chevron — rotates 90deg on expanded */
+.tree-chevron {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: transform 0.15s, background 0.15s;
+  /* Default ▶ in LTR points right; we flip in RTL automatically below */
+  transform: rotate(0deg);
+}
+
+.tree-chevron:hover {
+  background: var(--bg-hover);
+}
+
+.tree-chevron.expanded {
+  transform: rotate(90deg);
+  color: var(--primary);
+}
+
+.tree-chevron.invisible {
+  visibility: hidden;
+  cursor: default;
+}
+
+/* In an RTL document, the un-expanded ▶ should point INTO the row, i.e.
+   leftward. Flip horizontally. */
+[dir="rtl"] .tree-chevron:not(.expanded) {
+  transform: scaleX(-1);
+}
+
+.tree-grip {
   color: var(--text-faint);
+  cursor: grab;
   user-select: none;
+  font-size: 0.85rem;
+  letter-spacing: -2px;
+  flex-shrink: 0;
 }
 
-.menu-item-row .item-icon {
-  width: 36px;
-  height: 36px;
+.tree-grip:active { cursor: grabbing; }
+
+.tree-icon {
+  width: 32px;
+  height: 32px;
   border-radius: var(--radius-sm);
   background: var(--bg-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  font-size: 1.05rem;
 }
 
-.menu-item-row .item-info {
+.tree-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
 }
 
-.menu-item-row .item-info .label {
+.tree-label {
   font-weight: 500;
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
 
-.menu-item-row .item-info .meta {
-  font-size: 0.8rem;
+.tree-meta {
+  font-size: 0.78rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-
-.menu-item-row .item-actions {
+.tree-actions {
   display: flex;
   gap: 0.25rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tree-actions .btn {
+  padding-inline: 0.55rem;
+}
+
+.tree-add-btn {
+  min-width: 32px;
+  font-weight: 700;
+}
+
+/* Vertical pair of ▲▼ next to each other to save horizontal space */
+.tree-arrow-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tree-arrow {
+  height: 14px;
+  width: 22px;
+  font-size: 0.55rem;
+  padding: 0;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all var(--transition);
+}
+
+.tree-arrow:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+/* Hide the long "החלף" text on narrow screens; keep just the ↻ glyph */
+.tree-btn-icon { display: none; }
+
+/* Indented children container — left-bordered to show the parent-child line */
+.tree-children {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-inline-start: 1.5rem;
+  padding-inline-start: 0.85rem;
+  border-inline-start: 2px dashed var(--border);
+  min-width: 0;
+}
+
+/* Empty-tree placeholder */
+.tree-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg);
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  flex-wrap: wrap;
+}
+
+/* Add-item picker (file vs submenu) — used inside the modal */
+.add-item-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.add-item-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 1.25rem 0.75rem;
+  background: var(--bg-elev);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: center;
+  font: inherit;
+  color: inherit;
+}
+
+.add-item-card:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.add-item-icon { font-size: 2.2rem; }
+.add-item-label { font-weight: 600; font-size: 1rem; }
+.add-item-desc { font-size: 0.78rem; color: var(--text-muted); }
+
+/* Orphans section */
+.orphans-card {
+  margin-top: 1rem;
+  border: 1px solid var(--warning);
+  background: rgba(251, 191, 36, 0.04);
+}
+
+.orphan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.orphan-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-elev);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* ============================================
@@ -1032,10 +1249,6 @@ textarea {
 
   .main-content {
     padding: 1.25rem;
-  }
-
-  .menu-builder {
-    grid-template-columns: 240px 1fr;
   }
 }
 
@@ -1181,65 +1394,91 @@ textarea {
     gap: 0.5rem;
   }
 
-  /* Menu builder collapses; menu list scrolls horizontally
-     The #menus-list container constrains the scroll to card width;
-     the inner .menu-list uses flex-row with overflow-x:auto. */
-  .menu-builder {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0.75rem;
+  /* Menu tree on mobile:
+     - Tighten indentation so deeply-nested rows don't get squeezed off-screen
+     - Hide drag-grip (HTML5 D&D barely works on touch; arrows are the path)
+     - Wrap actions onto a second line under the row label
+     - Show the ↻ glyph instead of the "↻ החלף" full text */
+  .menu-tree {
+    padding: 0.5rem 0.6rem 0.75rem;
+    gap: 0.45rem;
   }
 
-  #menus-list {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    min-width: 0;
-    max-width: 100%;
-  }
-
-  #menus-sidebar .menu-list {
-    flex-direction: row;
+  .tree-children {
+    margin-inline-start: 0.6rem;
+    padding-inline-start: 0.55rem;
     gap: 0.4rem;
-    padding-bottom: 0.25rem;
-    width: max-content;     /* lets it grow naturally so overflow on parent triggers */
-    min-width: 100%;
   }
 
-  #menus-sidebar .menu-list-item {
-    flex: 0 0 auto;
-    white-space: nowrap;
-  }
-
-  /* Menu item rows reflow: actions go to a second line under a divider */
-  .menu-item-row {
+  .tree-row {
     flex-wrap: wrap;
-    padding: 0.7rem 0.75rem;
-    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+    gap: 0.45rem;
   }
 
-  .menu-item-row .item-info {
+  .tree-grip {
+    display: none;
+  }
+
+  .tree-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 0.95rem;
+  }
+
+  .tree-info {
     flex: 1 1 0;
     min-width: 0;
   }
 
-  .menu-item-row .item-actions {
+  .tree-actions {
     flex-wrap: wrap;
     width: 100%;
-    justify-content: stretch;
-    gap: 0.4rem;
+    justify-content: flex-end;
+    gap: 0.35rem;
     border-top: 1px dashed var(--border);
     padding-top: 0.5rem;
-    margin-top: 0.25rem;
+    margin-top: 0.15rem;
   }
 
-  .menu-item-row .item-actions .btn {
-    /* 30% basis lets 2 buttons take 50% each, 3 buttons take 33% each,
-       all on one row. Min 0 + ellipsis handles longer labels gracefully. */
-    flex: 1 1 30%;
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    padding-inline: 0.5rem;
+  .tree-actions .btn {
+    flex: 0 0 auto;
+    padding-inline: 0.55rem;
+  }
+
+  .tree-btn-text { display: none; }
+  .tree-btn-icon { display: inline; }
+
+  .tree-root-header {
+    padding: 0.85rem 0.85rem;
+    gap: 0.5rem;
+  }
+
+  .tree-empty {
+    padding: 0.7rem 0.85rem;
+    font-size: 0.85rem;
+  }
+
+  /* Add-item picker stacks vertically on phones */
+  .add-item-picker {
+    grid-template-columns: 1fr;
+  }
+  .add-item-card {
+    flex-direction: row;
+    text-align: start;
+    padding: 0.85rem;
+    gap: 0.85rem;
+  }
+  .add-item-icon { font-size: 1.6rem; }
+
+  .orphan-row {
+    padding: 0.6rem 0.7rem;
+  }
+  .orphan-row .tree-actions {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+    width: auto;
   }
 
   /* Filter bar: full-width search (override inline max-width) */
@@ -1432,9 +1671,15 @@ textarea {
     display: none;       /* logo only — saves header space */
   }
 
-  .menu-item-row .item-actions .btn {
+  .tree-actions .btn {
     font-size: 0.75rem;
     padding: 0.3rem 0.55rem;
+  }
+
+  /* Even tighter indentation on small phones */
+  .tree-children {
+    margin-inline-start: 0.4rem;
+    padding-inline-start: 0.45rem;
   }
 
   .stats-grid {
@@ -1461,7 +1706,7 @@ textarea {
    Touch hint — disable hover-only effects on touch
    ============================================ */
 @media (hover: none) {
-  .menu-list-item:hover,
+  .tree-row:hover,
   .nav-item:hover,
   .btn:hover:not(:disabled),
   .btn-ghost:hover:not(:disabled),

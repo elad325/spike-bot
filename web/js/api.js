@@ -106,6 +106,20 @@ export async function listMenuItems(menuId) {
   return data;
 }
 
+/**
+ * Fetch every menu_item in the system in a single round-trip — used by the
+ * tree view to render the whole structure at once instead of N+1-querying
+ * per menu when the user expands.
+ */
+export async function listAllMenuItems() {
+  const { data, error } = await supabase
+    .from('menu_items')
+    .select('*')
+    .order('display_order', { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
 export async function createMenuItem(item) {
   const { data, error } = await supabase
     .from('menu_items')
