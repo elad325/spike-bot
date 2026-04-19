@@ -1,0 +1,15 @@
+# Supabase project config — only the bits needed for Edge Function deploys.
+# Local dev (`supabase start`) is not used here; the project is hosted.
+
+project_id = "spike-bot"
+
+# Google's OAuth redirect to /functions/v1/google-oauth-callback won't carry
+# a Supabase JWT, and the dashboard popup that hits /google-oauth-init is
+# also unauthenticated by design (it runs before any user session is needed).
+# Both functions implement their own auth: a state cookie + Google's code
+# exchange. So we explicitly disable JWT verification on them.
+[functions.google-oauth-init]
+verify_jwt = false
+
+[functions.google-oauth-callback]
+verify_jwt = false

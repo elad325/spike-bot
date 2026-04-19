@@ -2,6 +2,69 @@ import { CONFIG } from '../config.js';
 import { getSettings, updateSettings } from '../api.js';
 import { toast, escapeHtml, formatRelative, setBtnLoading } from '../ui.js';
 
+/**
+ * Open Google OAuth in a popup that targets the Supabase Edge Function.
+ * The function-side callback page postMessages back to us with
+ * { type:'spike:google-connected', ok, email, message }, then closes.
+ *
+ * Falls back to detecting popup.closed in case the message never arrives
+ * (e.g. user closed the window mid-flow) so the promise can't hang.
+ */
+function startOAuthPopup() {
+  return new Promise((resolve) => {
+    const returnUrl = window.location.href;
+    const initUrl =
+      `${CONFIG.SUPABASE_URL}/functions/v1/google-oauth-init` +
+      `?return=${encodeURIComponent(returnUrl)}`;
+    const popup = window.open(
+      initUrl,
+      'spike-google-oauth',
+      'width=520,height=680,menubar=no,toolbar=no'
+    );
+
+    if (!popup) {
+      resolve({
+        ok: false,
+        message: 'הדפדפן חסם את החלון הקופץ. אפשר להתיר ונסה שוב.',
+      });
+      return;
+    }
+
+    let settled = false;
+    const onMessage = (e) => {
+      const data = e.data;
+      if (!data || data.type !== 'spike:google-connected') return;
+      // Only trust messages from our own Supabase Edge Function origin.
+      try {
+        const origin = new URL(CONFIG.SUPABASE_URL).origin;
+        if (e.origin !== origin) return;
+      } catch {
+        return;
+      }
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      clearInterval(closedTimer);
+      try { popup.close(); } catch {}
+      resolve({
+        ok: !!data.ok,
+        email: data.email || null,
+        message: data.message || null,
+      });
+    };
+    window.addEventListener('message', onMessage);
+
+    const closedTimer = setInterval(() => {
+      if (popup.closed && !settled) {
+        settled = true;
+        window.removeEventListener('message', onMessage);
+        clearInterval(closedTimer);
+        resolve({ ok: false, cancelled: true, message: 'הפעולה בוטלה' });
+      }
+    }, 600);
+  });
+}
+
 export async function renderSettingsPage(container) {
   const settings = await getSettings();
   const driveConnected = Boolean(settings.google_refresh_token);
@@ -29,14 +92,25 @@ export async function renderSettingsPage(container) {
             ? '<span class="tag tag-success">מחובר ✓</span>'
             : '<span class="tag tag-danger">לא מחובר</span>'}
         </div>
-        ${driveConnected
-          ? `<div style="padding:.85rem 1rem;background:var(--bg-hover);border-radius:var(--radius);font-size:.9rem">
-              <div><strong>חשבון:</strong> ${escapeHtml(settings.google_email || '-')}</div>
-            </div>`
-          : `<div style="padding:.85rem 1rem;background:var(--warning-soft);color:var(--warning);border-radius:var(--radius);font-size:.9rem;line-height:1.6">
-              <strong>נדרשת פעולה:</strong> כדי להפעיל את הבוט, יש לחבר חשבון Google Drive.<br>
-              הפעל בטרמינל את הפקודה <code>npm run setup-google</code> בתיקיית <code>bot/</code>.
-            </div>`}
+
+        <div id="drive-account-block">
+          ${driveConnected
+            ? `<div style="padding:.85rem 1rem;background:var(--bg-hover);border-radius:var(--radius);font-size:.9rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+                <div>
+                  <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.15rem">חשבון מחובר</div>
+                  <div><strong id="drive-email">${escapeHtml(settings.google_email || '-')}</strong></div>
+                </div>
+                <button class="btn btn-ghost" id="change-drive-btn" type="button">
+                  🔄 החלף חשבון
+                </button>
+              </div>`
+            : `<div style="padding:.85rem 1rem;background:var(--warning-soft);color:var(--warning);border-radius:var(--radius);font-size:.9rem;line-height:1.6;margin-bottom:.75rem">
+                <strong>נדרשת פעולה:</strong> כדי שהבוט יוכל לשלוח קבצים, יש לחבר חשבון Google Drive.
+              </div>
+              <button class="btn btn-primary" id="change-drive-btn" type="button">
+                🔗 חבר חשבון Google Drive
+              </button>`}
+        </div>
       </div>
 
       <!-- Google Picker config -->
@@ -124,6 +198,7 @@ export async function renderSettingsPage(container) {
     </div>
   `;
 
+  // ----- Bot messages form -----
   const form = container.querySelector('#messages-form');
   const saveBtn = container.querySelector('#save-messages');
   form.addEventListener('submit', async (e) => {
@@ -144,4 +219,26 @@ export async function renderSettingsPage(container) {
       setBtnLoading(saveBtn, false);
     }
   });
+
+  // ----- Change Google Drive account -----
+  const changeBtn = container.querySelector('#change-drive-btn');
+  if (changeBtn) {
+    changeBtn.addEventListener('click', async () => {
+      setBtnLoading(changeBtn, true);
+      const result = await startOAuthPopup();
+      setBtnLoading(changeBtn, false);
+
+      if (result.cancelled) return; // silent — user closed the popup
+      if (!result.ok) {
+        toast(result.message || 'החיבור נכשל', 'error', 5000);
+        return;
+      }
+
+      toast(`חובר בהצלחה: ${result.email}`, 'success');
+      // The bot reads google_refresh_token straight from app_settings on
+      // every Drive call, so the new account takes effect on the next file
+      // request without restarting the bot. We just need to refresh the UI.
+      await renderSettingsPage(container);
+    });
+  }
 }
