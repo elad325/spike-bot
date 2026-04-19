@@ -317,7 +317,7 @@ async function applyUserAction(sock, jid, user, targetUser, actionKey) {
   }
 
   await supabase.from('whatsapp_users').update(updates).eq('id', targetUser.id);
-  log.success(`Admin ${user.phone_number} -> ${actionKey} -> ${targetUser.phone_number}`);
+  log.success(`Admin ${formatPhoneDisplay(user.phone_number)} -> ${actionKey} -> ${formatPhoneDisplay(targetUser.phone_number)}`);
   await sendText(sock, jid, summary);
 
   // Notify newly-approved users so they get a welcome message
@@ -331,7 +331,7 @@ async function applyUserAction(sock, jid, user, targetUser, actionKey) {
       const updated = { ...targetUser, ...updates };
       await sendRootMenu(sock, targetJid, updated);
     } catch (err) {
-      log.error(`Failed to welcome ${targetUser.phone_number}:`, err.message);
+      log.error(`Failed to welcome ${formatPhoneDisplay(targetUser.phone_number)}:`, err.message);
     }
   }
 

@@ -1,9 +1,37 @@
 /**
- * Get phone number from a WhatsApp JID (e.g. "972501234567@s.whatsapp.net" → "972501234567")
+ * Get the user-id portion of a WhatsApp JID.
+ * For "@s.whatsapp.net" JIDs this is the actual phone number; for "@lid"
+ * JIDs it's WhatsApp's privacy-preserving anonymous LID — NOT a phone.
+ * (e.g. "972501234567@s.whatsapp.net" → "972501234567",
+ *       "199303746347211@lid"          → "199303746347211")
  */
 export function phoneFromJid(jid) {
   if (!jid) return null;
   return jid.split('@')[0].split(':')[0];
+}
+
+/**
+ * Pick the real phone number out of a Baileys message key.
+ *
+ * Baileys 7 puts the alternate-addressing JID on `key.remoteJidAlt`:
+ * when the chat is LID-addressed, `remoteJidAlt` is the corresponding
+ * "<phone>@s.whatsapp.net" JID (when the contact's phone is known).
+ * Prefer that so we log/store actual phones instead of anonymous LIDs.
+ *
+ * Falls back to `remoteJid` (which may itself be a LID — caller must
+ * tolerate that for unknown-phone contacts).
+ */
+export function phoneFromMsgKey(key) {
+  if (!key) return null;
+  const altIsPn = key.remoteJidAlt?.endsWith('@s.whatsapp.net');
+  return phoneFromJid(altIsPn ? key.remoteJidAlt : key.remoteJid);
+}
+
+/**
+ * True if the JID is WhatsApp's anonymous LID (not a phone).
+ */
+export function isLidJid(jid) {
+  return typeof jid === 'string' && jid.endsWith('@lid');
 }
 
 /**

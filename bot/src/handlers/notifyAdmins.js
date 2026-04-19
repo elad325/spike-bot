@@ -39,7 +39,7 @@ export async function notifyAdminsBotOnline(sock) {
       await sock.sendMessage((admin.jid || jidFromPhone(admin.phone_number)), { text });
       await logAdminMessage(admin, 'text', text);
     } catch (err) {
-      log.error(`Failed to notify admin ${admin.phone_number}:`, err.message);
+      log.error(`Failed to notify admin ${formatPhoneDisplay(admin.phone_number)}:`, err.message);
     }
   }
   log.success(`Notified ${admins.length} admin(s) that bot is online.`);
@@ -96,14 +96,14 @@ export async function notifyAdminsNewUser(sock, newUser, firstMessage) {
         await sock.sendMessage(adminJid, { text });
         sent = true;
       } catch (err) {
-        log.error(`Failed to notify admin ${admin.phone_number}:`, err.message);
+        log.error(`Failed to notify admin ${formatPhoneDisplay(admin.phone_number)}:`, err.message);
       }
     }
 
     if (sent) await logAdminMessage(admin, 'text', text);
   }
 
-  log.info(`Notified ${admins.length} admin(s) about new user ${phone}`);
+  log.info(`Notified ${admins.length} admin(s) about new user ${display}`);
 }
 
 /**

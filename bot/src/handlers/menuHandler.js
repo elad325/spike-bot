@@ -1,6 +1,6 @@
 import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
-import { numberToEmoji } from '../utils/format.js';
+import { numberToEmoji, formatPhoneDisplay } from '../utils/format.js';
 import { downloadDriveFile, markFileMissing } from '../googleDrive.js';
 
 /**
@@ -123,7 +123,7 @@ export async function sendFile(sock, jid, user, item) {
     });
 
     await logOutgoing(user, user.phone_number, 'document', `[file: ${item.label}]`);
-    log.success(`Sent file "${item.label}" to ${user.phone_number}`);
+    log.success(`Sent file "${item.label}" to ${formatPhoneDisplay(user.phone_number)}`);
 
     // After sending, redisplay current menu (so they can pick another)
     if (user.current_menu_id) {

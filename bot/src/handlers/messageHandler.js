@@ -1,6 +1,12 @@
 import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
-import { phoneFromJid, parseNumericReply } from '../utils/format.js';
+import {
+  phoneFromJid,
+  phoneFromMsgKey,
+  isLidJid,
+  formatPhoneDisplay,
+  parseNumericReply,
+} from '../utils/format.js';
 import { sendMenu, sendRootMenu, sendFile, sendText } from './menuHandler.js';
 import {
   notifyAdminsNewUser,
@@ -75,16 +81,37 @@ function extractContent(msg) {
 }
 
 async function getOrCreateUser(phone, jid, name) {
-  const { data: existing } = await supabase
+  // Look up by phone first, then by JID. The JID lookup catches two cases:
+  //   1. We previously stored this contact under their LID (because Baileys
+  //      hadn't surfaced their phone yet) — now we know the real phone and
+  //      want to migrate the row instead of creating a duplicate.
+  //   2. The contact is LID-only and phone == LID anyway (no migration).
+  const byPhone = await supabase
     .from('whatsapp_users')
     .select('*')
     .eq('phone_number', phone)
     .maybeSingle();
 
+  let existing = byPhone.data;
+  if (!existing && jid) {
+    const byJid = await supabase
+      .from('whatsapp_users')
+      .select('*')
+      .eq('jid', jid)
+      .maybeSingle();
+    existing = byJid.data;
+  }
+
   if (existing) {
     const updates = {};
     if (name && name !== existing.whatsapp_name) updates.whatsapp_name = name;
     if (jid && jid !== existing.jid) updates.jid = jid;
+    // Migration: if we found by JID and the stored phone_number is still the
+    // old LID, replace it with the real phone we just discovered.
+    if (phone && phone !== existing.phone_number) {
+      updates.phone_number = phone;
+      log.info(`↻ Migrating user ${existing.id}: ${existing.phone_number} → ${phone}`);
+    }
     if (Object.keys(updates).length) {
       await supabase.from('whatsapp_users').update(updates).eq('id', existing.id);
       Object.assign(existing, updates);
@@ -153,7 +180,11 @@ export async function handleMessage(sock, msg) {
   // format. Reject everything else (groups, broadcasts, status, newsletters).
   if (!jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) return;
 
-  const phone = phoneFromJid(jid);
+  // Real phone number: prefer remoteJidAlt (the PN that Baileys 7 surfaces
+  // alongside an LID-addressed message). Falls back to the JID's user-part
+  // when the phone is genuinely unknown — at worst this is the LID number,
+  // matching the previous behavior.
+  const phone = phoneFromMsgKey(msg.key);
   const botPhone = phoneFromJid(sock.user?.id);
   if (botPhone && phone === botPhone) return;
 
@@ -162,7 +193,13 @@ export async function handleMessage(sock, msg) {
 
   const name = msg.pushName || phone;
 
-  log.info(`📨 ${name} (${phone}): [${content.type}] ${content.text || content.buttonId || content.rowId || ''}`);
+  // Pretty-print the phone for the log (e.g. "+972 50-123-4567"); fall back
+  // to a "(@lid <id>)" tag when we still only have the anonymous LID so the
+  // operator can tell at a glance that no real phone was available.
+  const phoneTag = isLidJid(jid) && phone === phoneFromJid(jid)
+    ? `@lid ${phone}`
+    : formatPhoneDisplay(phone);
+  log.info(`📨 ${name} (${phoneTag}): [${content.type}] ${content.text || content.buttonId || content.rowId || ''}`);
 
   // Get or create user (store the original jid so replies go back via the
   // same address — LID-only contacts can't be reached via @s.whatsapp.net).
@@ -266,7 +303,7 @@ async function routeApprovedMessage(sock, jid, user, content, previousLastMsg, n
 
   // Reset to root if user has been inactive
   if (wasInactive) {
-    log.info(`User ${user.phone_number} was inactive — resetting to root menu`);
+    log.info(`User ${formatPhoneDisplay(user.phone_number)} was inactive — resetting to root menu`);
     await supabase
       .from('whatsapp_users')
       .update({ current_menu_id: null })

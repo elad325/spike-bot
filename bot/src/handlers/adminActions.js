@@ -80,7 +80,7 @@ async function approveUser(sock, targetUser, admin, asAdmin) {
     .eq('id', targetUser.id);
 
   log.success(
-    `Admin ${admin.phone_number} ${asAdmin ? 'promoted' : 'approved'} ${targetUser.phone_number}`
+    `Admin ${formatPhoneDisplay(admin.phone_number)} ${asAdmin ? 'promoted' : 'approved'} ${formatPhoneDisplay(targetUser.phone_number)}`
   );
 
   // Notify admin
@@ -108,7 +108,7 @@ async function approveUser(sock, targetUser, admin, asAdmin) {
     const updated = { ...targetUser, status: 'approved', role: asAdmin ? 'admin' : 'user', current_menu_id: null };
     await sendRootMenu(sock, targetJid, updated);
   } catch (err) {
-    log.error(`Failed to send welcome to ${targetUser.phone_number}:`, err.message);
+    log.error(`Failed to send welcome to ${formatPhoneDisplay(targetUser.phone_number)}:`, err.message);
   }
 }
 
@@ -120,7 +120,7 @@ async function denyUser(sock, targetUser, admin) {
     .update({ status: 'denied', role: 'user' })
     .eq('id', targetUser.id);
 
-  log.info(`Admin ${admin.phone_number} denied ${targetUser.phone_number}`);
+  log.info(`Admin ${formatPhoneDisplay(admin.phone_number)} denied ${formatPhoneDisplay(targetUser.phone_number)}`);
 
   await sendApprovalResult(
     sock,
