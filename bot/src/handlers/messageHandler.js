@@ -108,13 +108,27 @@ async function getOrCreateUser(phone, jid, name) {
     if (jid && jid !== existing.jid) updates.jid = jid;
     // Migration: if we found by JID and the stored phone_number is still the
     // old LID, replace it with the real phone we just discovered.
+    let migratedFromPhone = null;
     if (phone && phone !== existing.phone_number) {
       updates.phone_number = phone;
+      migratedFromPhone = existing.phone_number;
       log.info(`↻ Migrating user ${existing.id}: ${existing.phone_number} → ${phone}`);
     }
     if (Object.keys(updates).length) {
       await supabase.from('whatsapp_users').update(updates).eq('id', existing.id);
       Object.assign(existing, updates);
+    }
+    // When the phone migrates, retroactively rewrite the historical messages
+    // table for this user so the dashboard's "history" view stops displaying
+    // the old LID for past chats. One UPDATE handles arbitrarily many rows.
+    if (migratedFromPhone) {
+      const { error: updErr, count } = await supabase
+        .from('messages')
+        .update({ phone_number: phone }, { count: 'exact' })
+        .eq('user_id', existing.id)
+        .eq('phone_number', migratedFromPhone);
+      if (updErr) log.warn(`Failed to backfill messages for ${existing.id}: ${updErr.message}`);
+      else if (count) log.info(`  ↻ Backfilled ${count} historical messages → ${phone}`);
     }
     return { user: existing, isNew: false };
   }

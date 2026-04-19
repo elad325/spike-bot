@@ -132,10 +132,36 @@ export function formatRelative(date) {
   return formatDate(date);
 }
 
+/**
+ * True if a string looks like a WhatsApp anonymous LID rather than a phone.
+ *
+ * WhatsApp's privacy-preserving @lid identifiers are 14-20 digit decimals
+ * that look superficially like phones. Real E.164 phones max out at 15
+ * digits but personal numbers almost never exceed 13. So: any pure-digit
+ * string of 14+ digits is almost certainly a LID, and we want to render
+ * those visually distinctly so the admin doesn't mistake them for some
+ * obscure-country phone number.
+ */
+export function isLidNumber(phone) {
+  if (!phone) return false;
+  if (!/^\d+$/.test(phone)) return false;
+  if (phone.length < 14) return false;
+  // Don't false-positive on legitimately long international formats that
+  // happen to start with a known country prefix
+  if (phone.startsWith('972')) return false;
+  return true;
+}
+
 export function formatPhone(phone) {
   if (!phone) return '';
-  if (phone.startsWith('972') && phone.length === 12) {
+  // Israeli mobile/landline: 972 + 8-9 digits
+  if (phone.startsWith('972') && phone.length >= 11 && phone.length <= 13) {
     return `+972 ${phone.slice(3, 5)}-${phone.slice(5, 8)}-${phone.slice(8)}`;
+  }
+  if (isLidNumber(phone)) {
+    // Render as a visually-distinct tag instead of a fake "+phone". The
+    // admin can still see the full identifier and copy-paste it.
+    return `🔒 LID·${phone}`;
   }
   return `+${phone}`;
 }
