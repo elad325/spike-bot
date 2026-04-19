@@ -50,6 +50,10 @@ export async function renderMessagesPage(container) {
 
   function renderMessage(m) {
     const isOut = m.direction === 'outgoing';
+    // Fall back to the phone if WhatsApp didn't give us a profile name —
+    // never expose an internal id or a bare "-" to the admin.
+    const phoneDisplay = formatPhone(m.phone_number);
+    const senderName = m.whatsapp_name || phoneDisplay;
     const initial = (m.whatsapp_name || m.phone_number || '?')[0].toUpperCase();
     const typeBadge = m.message_type !== 'text' ? `<span class="tag" style="font-size:.65rem;padding:.05rem .4rem">${escapeHtml(m.message_type)}</span>` : '';
     const directionIcon = isOut ? '⬅️' : '➡️';
@@ -60,8 +64,8 @@ export async function renderMessagesPage(container) {
         <div class="avatar" style="background:${isOut ? 'var(--accent)' : 'var(--primary)'}">${isOut ? '🤖' : initial}</div>
         <div class="content">
           <div class="header">
-            <span class="name">${isOut ? 'SPIKE' : escapeHtml(m.whatsapp_name || '-')}</span>
-            <span class="meta">${directionIcon} ${formatPhone(m.phone_number)}</span>
+            <span class="name" style="${m.whatsapp_name ? '' : 'direction:ltr;unicode-bidi:embed'}">${isOut ? 'SPIKE' : escapeHtml(senderName)}</span>
+            <span class="meta">${directionIcon} ${phoneDisplay}</span>
             ${typeBadge}
             <span class="meta" style="margin-inline-start:auto">${formatDate(m.created_at)}</span>
           </div>

@@ -106,7 +106,10 @@ export async function renderUsersPage(container) {
   function renderRow(u) {
     const status = STATUS_LABELS[u.status];
     const role = ROLE_LABELS[u.role];
-    const initial = (u.whatsapp_name || '?')[0].toUpperCase();
+    // Fall back to the phone number if WhatsApp didn't give us a profile name —
+    // we never want to expose a UUID or a bare "-" to the admin.
+    const displayName = u.whatsapp_name || formatPhone(u.phone_number);
+    const initial = (u.whatsapp_name || u.phone_number || '?')[0].toUpperCase();
 
     let actions = [];
     if (u.status === 'pending') {
@@ -127,7 +130,7 @@ export async function renderUsersPage(container) {
 
     return `
       <tr>
-        <td data-label="שם"><div style="display:flex;align-items:center;gap:.6rem"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${initial}</div>${escapeHtml(u.whatsapp_name || '-')}</div></td>
+        <td data-label="שם"><div style="display:flex;align-items:center;gap:.6rem"><div style="width:32px;height:32px;border-radius:50%;background:var(--primary);color:white;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">${initial}</div><span style="${u.whatsapp_name ? '' : 'direction:ltr;unicode-bidi:embed'}">${escapeHtml(displayName)}</span></div></td>
         <td data-label="מספר" style="direction:ltr;text-align:right">${formatPhone(u.phone_number)}</td>
         <td data-label="סטטוס"><span class="tag ${status.cls}">${status.text}</span></td>
         <td data-label="תפקיד"><span class="tag ${role.cls}">${role.text}</span></td>
