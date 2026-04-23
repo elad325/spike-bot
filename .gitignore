@@ -34,3 +34,6 @@ ecosystem.local.config.js
 
 # Local config overrides
 web/js/config.local.js
+
+# Supabase CLI scratch directory (auto-created on `supabase link`)
+supabase/.temp/

@@ -32,11 +32,14 @@ function encodeStateCookie(state: string, returnUrl: string): string {
   return btoa(json).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function getCallbackUrl(req: Request): string {
-  // We derive the callback URL from the same host the init was called on
-  // so a given deployment doesn't need to know its own project ref.
-  const url = new URL(req.url);
-  return `${url.origin}/functions/v1/google-oauth-callback`;
+function getCallbackUrl(): string {
+  // Use the SUPABASE_URL env var (auto-injected by the Edge runtime) —
+  // it's the canonical public project URL, unlike req.url/req.headers.host
+  // which point at the internal edge-runtime host after the gateway
+  // forwarded the request inward.
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl) throw new Error("SUPABASE_URL not injected");
+  return `${supabaseUrl}/functions/v1/google-oauth-callback`;
 }
 
 serve((req) => {
@@ -63,7 +66,7 @@ serve((req) => {
 
   const state = crypto.randomUUID();
   const cookieValue = encodeStateCookie(state, returnUrl);
-  const callbackUrl = getCallbackUrl(req);
+  const callbackUrl = getCallbackUrl();
 
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", clientId);

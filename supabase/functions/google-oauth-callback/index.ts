@@ -163,7 +163,22 @@ serve(async (req) => {
     );
   }
 
-  const redirectUri = `${url.origin}/functions/v1/google-oauth-callback`;
+  // The redirect_uri sent here MUST match exactly the one used in the
+  // init step (and what's registered in Google Cloud Console). Use
+  // SUPABASE_URL (auto-injected, canonical public URL) so both ends
+  // agree on the same string regardless of internal routing quirks.
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl) {
+    return html(
+      resultPage({
+        ok: false,
+        message: "SUPABASE_URL לא מוזרק לפונקציה",
+        returnUrl,
+      }),
+      500,
+    );
+  }
+  const redirectUri = `${supabaseUrl}/functions/v1/google-oauth-callback`;
 
   let tokens: TokenResponse;
   try {
