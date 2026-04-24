@@ -55,6 +55,15 @@ Write-Host ""
 Write-Host "Registering PM2 with Windows startup..." -ForegroundColor Yellow
 pm2-startup install
 
+# Install pm2-logrotate so logs don't grow unbounded.
+# Defaults: rotate at 10MB, keep 7 days. Tweak via `pm2 set` if needed.
+Write-Host ""
+Write-Host "Installing pm2-logrotate (caps log file size)..." -ForegroundColor Yellow
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 7
+pm2 set pm2-logrotate:compress true
+
 # Start the bot
 Write-Host ""
 Write-Host "Starting the bot via PM2..." -ForegroundColor Yellow
