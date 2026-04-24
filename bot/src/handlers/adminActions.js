@@ -1,6 +1,6 @@
 import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
-import { jidFromPhone, formatPhoneDisplay } from '../utils/format.js';
+import { formatPhoneDisplay, deliverableJid } from '../utils/format.js';
 import { sendText, sendRootMenu } from './menuHandler.js';
 import { sendApprovalResult } from './notifyAdmins.js';
 
@@ -35,7 +35,7 @@ export function parseAdminCommand(text) {
  * @param {string} target - phone number of target user
  */
 export async function handleAdminAction(sock, { action, target }, admin) {
-  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
+  const adminJid = deliverableJid(admin);
 
   // Look up target user
   const { data: targetUser } = await supabase
@@ -68,8 +68,8 @@ export async function handleAdminAction(sock, { action, target }, admin) {
 }
 
 async function approveUser(sock, targetUser, admin, asAdmin) {
-  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
-  const targetJid = targetUser.jid || jidFromPhone(targetUser.phone_number);
+  const adminJid = deliverableJid(admin);
+  const targetJid = deliverableJid(targetUser);
 
   await supabase
     .from('whatsapp_users')
@@ -113,7 +113,7 @@ async function approveUser(sock, targetUser, admin, asAdmin) {
 }
 
 async function denyUser(sock, targetUser, admin) {
-  const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
+  const adminJid = deliverableJid(admin);
 
   await supabase
     .from('whatsapp_users')

@@ -1,7 +1,7 @@
 import { downloadMediaMessage } from '@whiskeysockets/baileys';
 import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
-import { formatPhoneDisplay, jidFromPhone, numberToEmoji, parseNumericReply } from '../utils/format.js';
+import { formatPhoneDisplay, numberToEmoji, parseNumericReply, deliverableJid } from '../utils/format.js';
 import { sendText, sendRootMenu } from './menuHandler.js';
 import { uploadDriveFile, markFileFound } from '../googleDrive.js';
 
@@ -323,7 +323,7 @@ async function applyUserAction(sock, jid, user, targetUser, actionKey) {
   // Notify newly-approved users so they get a welcome message
   if (actionKey === 'approve' || actionKey === 'promote') {
     try {
-      const targetJid = targetUser.jid || jidFromPhone(targetUser.phone_number);
+      const targetJid = deliverableJid(targetUser);
       const welcome = actionKey === 'promote'
         ? `👑 ברוך הבא! קיבלת הרשאות *מנהל*.`
         : `✅ ברוך הבא! חשבונך אושר.`;

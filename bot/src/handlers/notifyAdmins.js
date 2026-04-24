@@ -1,6 +1,6 @@
 import { supabase } from '../supabase.js';
 import { log } from '../utils/logger.js';
-import { jidFromPhone, formatPhoneDisplay } from '../utils/format.js';
+import { formatPhoneDisplay, deliverableJid } from '../utils/format.js';
 
 async function getAdmins() {
   const { data } = await supabase
@@ -36,7 +36,7 @@ export async function notifyAdminsBotOnline(sock) {
 
   for (const admin of admins) {
     try {
-      await sock.sendMessage((admin.jid || jidFromPhone(admin.phone_number)), { text });
+      await sock.sendMessage(deliverableJid(admin), { text });
       await logAdminMessage(admin, 'text', text);
     } catch (err) {
       log.error(`Failed to notify admin ${formatPhoneDisplay(admin.phone_number)}:`, err.message);
@@ -71,7 +71,7 @@ export async function notifyAdminsNewUser(sock, newUser, firstMessage) {
     `👑 \`/מנהל ${phone}\``;
 
   for (const admin of admins) {
-    const adminJid = (admin.jid || jidFromPhone(admin.phone_number));
+    const adminJid = deliverableJid(admin);
     let sent = false;
 
     // Try buttons first
@@ -122,7 +122,7 @@ export async function notifyAdminsFileMissing(sock, item) {
 
   for (const admin of admins) {
     try {
-      await sock.sendMessage((admin.jid || jidFromPhone(admin.phone_number)), { text });
+      await sock.sendMessage(deliverableJid(admin), { text });
       await logAdminMessage(admin, 'text', text);
     } catch (err) {
       log.error(`Failed to notify admin about missing file:`, err.message);

@@ -42,6 +42,24 @@ export function jidFromPhone(phone) {
 }
 
 /**
+ * Pick the best JID for sending a 1:1 message to a stored whatsapp_users row.
+ *
+ * Stored `user.jid` may be a WhatsApp anonymous LID (e.g. "199303746347211@lid").
+ * LIDs are valid for tracking inside groups, but Baileys/WhatsApp silently
+ * no-ops when you try to send a 1:1 to a @lid — the message never lands and
+ * no error is thrown, which is how admin notifications were quietly failing.
+ *
+ * Prefer the stored jid only when it's a real PN (@s.whatsapp.net); else
+ * rebuild from phone_number; only as last resort fall back to the LID.
+ */
+export function deliverableJid(user) {
+  if (!user) return null;
+  if (user.jid && !isLidJid(user.jid)) return user.jid;
+  if (user.phone_number) return jidFromPhone(user.phone_number);
+  return user.jid ?? null;
+}
+
+/**
  * Format phone for display (e.g. "972501234567" → "+972 50-123-4567")
  */
 export function formatPhoneDisplay(phone) {
