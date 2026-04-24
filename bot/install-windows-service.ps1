@@ -68,10 +68,22 @@ pm2 set pm2-logrotate:compress true
 Write-Host ""
 Write-Host "Starting the bot via PM2..." -ForegroundColor Yellow
 Set-Location $BotDir
-pm2 delete spike-bot 2>$null
+
+# Idempotent delete: if the process is already registered, drop it so the
+# subsequent `pm2 start` definitely starts a clean copy. We swallow any
+# "process not found" error — that's the expected case on a fresh install,
+# and PowerShell 5.1 + $ErrorActionPreference='Stop' would otherwise halt
+# the whole script when pm2 writes to stderr.
+try {
+    pm2 delete spike-bot 2>&1 | Out-Null
+} catch {
+    # ignore — the process didn't exist, which is fine
+}
+$global:LASTEXITCODE = 0
+
 pm2 start ecosystem.config.cjs
 
-# Persist PM2 process list so it restores on reboot
+# Persist PM2 process list so it restores on reboot.
 pm2 save
 
 Write-Host ""
