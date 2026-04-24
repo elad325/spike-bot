@@ -19,8 +19,15 @@
 // @ts-ignore — Deno std http import for Supabase Edge runtime
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 
+// We need full `drive` (not `drive.readonly`) because the admin file-replace
+// flow uploads NEW files via drive.files.create. With drive.readonly, that
+// upload fails with "Insufficient Permission" (HTTP 403). `drive.file` is
+// not enough either — the bot also reads files that were originally created
+// outside the app (selected via the dashboard's Drive picker), and
+// drive.file only sees files the app itself created or the user explicitly
+// opened with it.
 const SCOPES = [
-  "https://www.googleapis.com/auth/drive.readonly",
+  "https://www.googleapis.com/auth/drive",
   "https://www.googleapis.com/auth/userinfo.email",
 ];
 
