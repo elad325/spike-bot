@@ -55,7 +55,12 @@ function readCookie(req: Request, name: string): string | null {
 }
 
 function html(body: string, status = 200): Response {
-  return new Response(body, {
+  // Encode explicitly as UTF-8 bytes. Passing a string lets the runtime
+  // pick a default which on some Edge gateways was being re-served with
+  // the wrong charset, causing Hebrew to render as CP-1255 mojibake in
+  // the popup. Bytes + explicit Content-Type leaves no room for guessing.
+  const bytes = new TextEncoder().encode(body);
+  return new Response(bytes, {
     status,
     headers: {
       "Content-Type": "text/html; charset=utf-8",

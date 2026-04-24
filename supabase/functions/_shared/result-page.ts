@@ -29,8 +29,13 @@ export function resultPage(args: ResultArgs): string {
   const colorErr = "#ef4444";
   const closeDelay = args.ok ? 1500 : 4500;
 
+  // Belt-and-suspenders charset declaration: <meta charset> covers the
+  // modern path; <meta http-equiv> covers older parsers / view-source
+  // fallbacks that helped Hebrew pages render as CP-1255 in the popup.
   return `<!DOCTYPE html>
-<html lang="he" dir="rtl"><head><meta charset="utf-8">
+<html lang="he" dir="rtl"><head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>SPIKE — ${args.ok ? "מחובר" : "שגיאה"}</title>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; background: #0f1729; color: #e2e8f0;
