@@ -55,10 +55,9 @@ function readCookie(req: Request, name: string): string | null {
 }
 
 function html(body: string, status = 200): Response {
-  // Encode explicitly as UTF-8 bytes. Passing a string lets the runtime
-  // pick a default which on some Edge gateways was being re-served with
-  // the wrong charset, causing Hebrew to render as CP-1255 mojibake in
-  // the popup. Bytes + explicit Content-Type leaves no room for guessing.
+  // Encode explicitly as UTF-8 bytes. The body is also pure ASCII (Hebrew
+  // is rendered as numeric HTML entities in result-page.ts), so this is
+  // belt-and-suspenders — no encoding ambiguity is possible end-to-end.
   const bytes = new TextEncoder().encode(body);
   return new Response(bytes, {
     status,
@@ -68,6 +67,7 @@ function html(body: string, status = 200): Response {
       // outcome, so a stale cookie can't be reused.
       "Set-Cookie": "spike_oauth=; Path=/functions/v1/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
       "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

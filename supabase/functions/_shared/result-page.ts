@@ -17,8 +17,27 @@ export interface ResultArgs {
   returnUrl?: string;
 }
 
+// Render every non-ASCII char as a numeric HTML entity. Used for text that
+// goes into the HTML body — once the bytes are pure ASCII the browser/viewer
+// can't possibly mis-decode them, regardless of which charset it picks.
+function htmlEntities(s: string): string {
+  return s.replace(/[\u0080-\uffff]/g, (c) => `&#${c.charCodeAt(0)};`);
+}
+
+// Render every non-ASCII char as \uXXXX inside a JSON literal embedded in
+// <script>. JSON.stringify writes literal UTF-8 chars by default; this
+// post-processes them into \u escapes so the script source is also pure
+// ASCII bytes (otherwise the Hebrew strings inside the postMessage payload
+// would still be at the mercy of byte-level encoding).
+function jsonAsciiSafe(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[\u0080-\uffff]/g,
+    (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+}
+
 export function resultPage(args: ResultArgs): string {
-  const payload = JSON.stringify({
+  const payload = jsonAsciiSafe({
     type: "spike:google-connected",
     ok: args.ok,
     email: args.email ?? null,
@@ -29,14 +48,28 @@ export function resultPage(args: ResultArgs): string {
   const colorErr = "#ef4444";
   const closeDelay = args.ok ? 1500 : 4500;
 
-  // Belt-and-suspenders charset declaration: <meta charset> covers the
-  // modern path; <meta http-equiv> covers older parsers / view-source
-  // fallbacks that helped Hebrew pages render as CP-1255 in the popup.
+  // All user-visible Hebrew text is run through htmlEntities() so the bytes
+  // of the response are pure ASCII. This sidesteps a stubborn issue where
+  // the popup was being rendered as CP-1255 mojibake despite correct
+  // Content-Type + <meta charset> + UTF-8 bytes — something between the
+  // Edge runtime and the browser was guessing wrong, but plain ASCII gives
+  // it nothing to guess.
+  const title = args.ok ? "מחובר" : "שגיאה";
+  const heading = args.ok ? "מחובר ל-Google Drive" : "החיבור נכשל";
+  const okBody = `<p>${htmlEntities("החשבון המחובר:")}</p>` +
+    `<div class="email">${htmlEntities(args.email ?? "")}</div>\n` +
+    `         <p class="hint">${htmlEntities("החלון הזה ייסגר אוטומטית.")}</p>`;
+  const errBody = `<p>${htmlEntities(args.message ?? "שגיאה לא ידועה")}</p>\n` +
+    `         <p class="hint">${htmlEntities("סגור את החלון ונסה שוב מהדשבורד.")}</p>`;
+
+  // <meta charset> + http-equiv kept as belt-and-suspenders even though the
+  // body is now ASCII. Doesn't hurt and protects future edits that forget
+  // to entity-encode.
   return `<!DOCTYPE html>
 <html lang="he" dir="rtl"><head>
 <meta charset="utf-8">
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-<title>SPIKE — ${args.ok ? "מחובר" : "שגיאה"}</title>
+<title>SPIKE ${htmlEntities("—")} ${htmlEntities(title)}</title>
 <style>
   body { font-family: system-ui, -apple-system, sans-serif; background: #0f1729; color: #e2e8f0;
          display: flex; align-items: center; justify-content: center;
@@ -53,15 +86,9 @@ export function resultPage(args: ResultArgs): string {
   .hint { font-size: .85rem; color: #64748b; margin-top: 1.5rem; }
 </style></head>
 <body><div class="card">
-  <div class="check">${args.ok ? "✅" : "❌"}</div>
-  <h1>${args.ok ? "מחובר ל-Google Drive" : "החיבור נכשל"}</h1>
-  ${
-    args.ok
-      ? `<p>החשבון המחובר:</p><div class="email">${args.email ?? ""}</div>
-         <p class="hint">החלון הזה ייסגר אוטומטית.</p>`
-      : `<p>${args.message ?? "שגיאה לא ידועה"}</p>
-         <p class="hint">סגור את החלון ונסה שוב מהדשבורד.</p>`
-  }
+  <div class="check">${args.ok ? "&#x2705;" : "&#x274c;"}</div>
+  <h1>${htmlEntities(heading)}</h1>
+  ${args.ok ? okBody : errBody}
 </div>
 <script>
   (function () {
@@ -73,10 +100,10 @@ export function resultPage(args: ResultArgs): string {
     } catch (e) {}
     setTimeout(function () {
       ${
-        safeReturn
-          ? `try { window.location.href = ${JSON.stringify(safeReturn)}; } catch (e) {}`
-          : ""
-      }
+    safeReturn
+      ? `try { window.location.href = ${JSON.stringify(safeReturn)}; } catch (e) {}`
+      : ""
+  }
       try { window.close(); } catch (e) {}
     }, ${closeDelay});
   })();
