@@ -80,11 +80,22 @@ async function sendAdminRoot(sock, jid, user) {
 // ─────────────────────── File replacement ─────────────────────
 
 async function sendFileReplaceList(sock, jid, user) {
-  const { data: items } = await supabase
+  // NOTE: menu_items has TWO foreign keys to menus (menu_id and
+  // target_menu_id), so we must hint PostgREST which relationship to embed.
+  // Using just `menus!inner(name)` is ambiguous and the entire query fails
+  // silently — items comes back null and the admin sees "no files at all"
+  // even when files exist.
+  const { data: items, error } = await supabase
     .from('menu_items')
-    .select('id, label, drive_file_id, drive_file_name, menu_id, menus!inner(name)')
+    .select('id, label, drive_file_id, drive_file_name, menu_id, menus!menu_items_menu_id_fkey(name)')
     .eq('type', 'file')
     .order('created_at', { ascending: true });
+
+  if (error) {
+    log.error('Failed to load files for admin replace list:', error);
+    await sendText(sock, jid, `❌ שגיאה בטעינת רשימת הקבצים: ${error.message}`);
+    return;
+  }
 
   if (!items || items.length === 0) {
     await sendText(sock, jid, '📭 אין קבצים בשום תפריט.\nשלח */admin* כדי לחזור.');
