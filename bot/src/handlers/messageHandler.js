@@ -8,10 +8,7 @@ import {
   parseNumericReply,
 } from '../utils/format.js';
 import { sendMenu, sendRootMenu, sendFile, sendText } from './menuHandler.js';
-import {
-  notifyAdminsNewUser,
-  sendApprovalResult,
-} from './notifyAdmins.js';
+import { notifyAdminsNewUser } from './notifyAdmins.js';
 import { handleAdminAction, isAdminCommand, parseAdminCommand } from './adminActions.js';
 import {
   enterAdminMenu,

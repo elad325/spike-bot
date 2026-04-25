@@ -171,19 +171,38 @@ async function boot() {
 let pendingChannel = null;
 let badgeInterval = null;
 let statusInterval = null;
+let appActive = false;
 
-function showLogin() {
-  loginScreen.classList.remove('hidden');
-  appShell.classList.add('hidden');
+// Tear down anything showApp() set up. Safe to call multiple times.
+function teardownApp() {
   if (pendingChannel) {
     pendingChannel.unsubscribe();
     pendingChannel = null;
   }
-  if (badgeInterval) clearInterval(badgeInterval);
-  if (statusInterval) clearInterval(statusInterval);
+  if (badgeInterval) {
+    clearInterval(badgeInterval);
+    badgeInterval = null;
+  }
+  if (statusInterval) {
+    clearInterval(statusInterval);
+    statusInterval = null;
+  }
+  appActive = false;
+}
+
+function showLogin() {
+  loginScreen.classList.remove('hidden');
+  appShell.classList.add('hidden');
+  teardownApp();
 }
 
 function showApp() {
+  // onAuthChange can fire repeatedly with the same session (e.g. on token
+  // refresh). Without this guard we'd re-subscribe and re-interval every
+  // time, leaking realtime channels and timers.
+  if (appActive) return;
+  appActive = true;
+
   loginScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
 
