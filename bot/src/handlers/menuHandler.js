@@ -52,6 +52,18 @@ export async function sendRootMenu(sock, jid, user) {
  * format that works reliably end-to-end on a Baileys-linked account.
  */
 export async function sendMenu(sock, jid, user, menuId) {
+  // Guard against null menuId — happens when a submenu's target_menu_id was
+  // SET NULL by an ON DELETE cascade. Without this, the .eq('id', null)
+  // query would silently match nothing, fall through to the "not found"
+  // branch, and leave the user pointing at a dead menu forever.
+  if (!menuId) {
+    await sendText(sock, jid, '❌ התפריט לא נמצא — חוזרים לתפריט הראשי.');
+    await supabase.from('whatsapp_users').update({ current_menu_id: null }).eq('id', user.id);
+    user.current_menu_id = null;
+    await sendRootMenu(sock, jid, user);
+    return;
+  }
+
   const { data: menu } = await supabase
     .from('menus')
     .select('*')
@@ -59,7 +71,12 @@ export async function sendMenu(sock, jid, user, menuId) {
     .single();
 
   if (!menu) {
-    await sendText(sock, jid, '❌ התפריט לא נמצא.');
+    // Menu disappeared since we last sent it — clear the stale pointer so
+    // future messages don't keep looping back into this same dead branch.
+    await sendText(sock, jid, '❌ התפריט לא נמצא — חוזרים לתפריט הראשי.');
+    await supabase.from('whatsapp_users').update({ current_menu_id: null }).eq('id', user.id);
+    user.current_menu_id = null;
+    await sendRootMenu(sock, jid, user);
     return;
   }
 

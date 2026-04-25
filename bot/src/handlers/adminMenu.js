@@ -267,15 +267,19 @@ async function sendUserActionsMenu(sock, jid, user, targetUser) {
   ];
 
   const actions = [];
-  if (targetUser.status !== 'approved' || targetUser.role !== 'user') {
+  // Don't offer "approve as regular user" on yourself — it would silently
+  // demote the current admin (status:approved+role:user) and lock them out
+  // of every admin path on the next message.
+  const isSelf = targetUser.id === user.id;
+  if (!isSelf && (targetUser.status !== 'approved' || targetUser.role !== 'user')) {
     actions.push({ key: 'approve', label: '✅ אשר כמשתמש רגיל' });
   }
   if (targetUser.role !== 'admin') {
     actions.push({ key: 'promote', label: '👑 קדם למנהל' });
-  } else if (targetUser.id !== user.id) {
+  } else if (!isSelf) {
     actions.push({ key: 'demote', label: '⬇️ הסר הרשאות מנהל' });
   }
-  if (targetUser.status !== 'denied' && targetUser.id !== user.id) {
+  if (targetUser.status !== 'denied' && !isSelf) {
     actions.push({ key: 'deny', label: '❌ דחה / חסום' });
   }
 

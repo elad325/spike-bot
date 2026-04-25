@@ -182,6 +182,14 @@ export async function deleteUser(id) {
 // ============================================
 // Messages
 // ============================================
+// PostgREST `or=` parses commas / parens / dots as filter delimiters, so any
+// of those inside a user search term breaks the whole query (or, worse,
+// matches unintended things). Wrap each value in double-quotes and escape
+// embedded `"` and `\` per PostgREST's quoting rules.
+function escapeOrFilterValue(s) {
+  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
 export async function listMessages({ search = '', phone = null, limit = 200 } = {}) {
   let q = supabase
     .from('messages')
@@ -189,7 +197,10 @@ export async function listMessages({ search = '', phone = null, limit = 200 } = 
     .order('created_at', { ascending: false })
     .limit(limit);
   if (phone) q = q.eq('phone_number', phone);
-  if (search) q = q.or(`body.ilike.%${search}%,whatsapp_name.ilike.%${search}%,phone_number.ilike.%${search}%`);
+  if (search) {
+    const v = escapeOrFilterValue(`%${search}%`);
+    q = q.or(`body.ilike.${v},whatsapp_name.ilike.${v},phone_number.ilike.${v}`);
+  }
   const { data, error } = await q;
   if (error) throw error;
   return data;

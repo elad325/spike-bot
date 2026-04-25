@@ -147,7 +147,11 @@ export async function renderUsersPage(container) {
         await updateUser(id, { status: 'approved', role: 'user' });
         toast('המשתמש אושר', 'success');
       } else if (action === 'deny') {
-        await updateUser(id, { status: 'denied' });
+        // Match bot-side semantics (adminActions.denyUser / adminMenu.applyUserAction):
+        // denying always strips admin role too, so a "denied admin" can't
+        // exist in the system. Otherwise the dashboard would create a state
+        // the WhatsApp flow would never produce.
+        await updateUser(id, { status: 'denied', role: 'user' });
         toast('המשתמש נחסם', 'success');
       } else if (action === 'promote') {
         await updateUser(id, { status: 'approved', role: 'admin' });
