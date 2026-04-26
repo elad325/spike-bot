@@ -102,14 +102,12 @@ export function resultPage(args: ResultArgs): string {
   <button class="close-btn" id="closeBtn" type="button">${htmlEntities(buttonLabel)}</button>
 </div>
 <script>
-  // Message the opener (dashboard) so it refreshes its UI right away.
-  // Then schedule auto-close. We deliberately do NOT navigate the popup
-  // anywhere as a fallback: setting window.location.href to the dashboard
-  // URL just loads the entire dashboard inside this little 520x680 popup
-  // window and looks broken. Far better to leave the success message up
-  // and provide a manual "סגור חלון" button — clicking a button is a
-  // user gesture, which can succeed at closing the popup in some browsers
-  // where a script-driven close() was silently ignored.
+  // postMessage the opener (dashboard) so it refreshes its UI immediately,
+  // then schedule auto-close. We do NOT fall back to navigating to the
+  // dashboard URL: that just loads the whole dashboard inside the tiny
+  // popup window and looks broken. Instead the manual close button below
+  // is the fallback. (Deliberately ASCII-only here so any source-view
+  // tool the user opens shows clean text, not encoding mojibake.)
   (function () {
     var payload = ${payload};
     try {
