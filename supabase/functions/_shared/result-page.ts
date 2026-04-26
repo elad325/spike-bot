@@ -21,7 +21,9 @@ export interface ResultArgs {
 // goes into the HTML body — once the bytes are pure ASCII the browser/viewer
 // can't possibly mis-decode them, regardless of which charset it picks.
 function htmlEntities(s: string): string {
-  return s.replace(/[\u0080-\uffff]/g, (c) => `&#${c.charCodeAt(0)};`);
+  // Escape HTML metacharacters too (<, >, &, ", ') so any user-controlled
+  // string (e.g. the connected email) can't break out into HTML.
+  return s.replace(/[<>"'&\u0080-\uffff]/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
 // Render every non-ASCII char as \uXXXX inside a JSON literal embedded in
@@ -43,10 +45,11 @@ export function resultPage(args: ResultArgs): string {
     email: args.email ?? null,
     message: args.message ?? null,
   });
-  const safeReturn = (args.returnUrl ?? "").replace(/[<>"']/g, "");
   const colorOk = "#22c55e";
   const colorErr = "#ef4444";
-  const closeDelay = args.ok ? 1500 : 4500;
+  // Time to wait before attempting auto-close. Success closes fast; error
+  // lingers so the user has time to read the failure message.
+  const closeDelay = args.ok ? 1200 : 4500;
 
   // All user-visible Hebrew text is run through htmlEntities() so the bytes
   // of the response are pure ASCII. This sidesteps a stubborn issue where
@@ -56,9 +59,12 @@ export function resultPage(args: ResultArgs): string {
   // it nothing to guess.
   const title = args.ok ? "מחובר" : "שגיאה";
   const heading = args.ok ? "מחובר ל-Google Drive" : "החיבור נכשל";
+  const buttonLabel = args.ok ? "סגור חלון" : "סגור";
   const okBody = `<p>${htmlEntities("החשבון המחובר:")}</p>` +
     `<div class="email">${htmlEntities(args.email ?? "")}</div>\n` +
-    `         <p class="hint">${htmlEntities("החלון הזה ייסגר אוטומטית.")}</p>`;
+    `         <p class="hint">${
+      htmlEntities("הדשבורד עודכן. אם החלון לא נסגר אוטומטית, סגור אותו ידנית.")
+    }</p>`;
   const errBody = `<p>${htmlEntities(args.message ?? "שגיאה לא ידועה")}</p>\n` +
     `         <p class="hint">${htmlEntities("סגור את החלון ונסה שוב מהדשבורד.")}</p>`;
 
@@ -84,13 +90,26 @@ export function resultPage(args: ResultArgs): string {
            font-family: monospace; color: #e2e8f0; margin-top: .5rem; display: inline-block;
            direction: ltr; }
   .hint { font-size: .85rem; color: #64748b; margin-top: 1.5rem; }
+  .close-btn { margin-top: 1.25rem; padding: .65rem 1.75rem; background: #334155;
+               color: #e2e8f0; border: 0; border-radius: .5rem; font-size: .95rem;
+               cursor: pointer; font-family: inherit; }
+  .close-btn:hover { background: #475569; }
 </style></head>
 <body><div class="card">
   <div class="check">${args.ok ? "&#x2705;" : "&#x274c;"}</div>
   <h1>${htmlEntities(heading)}</h1>
   ${args.ok ? okBody : errBody}
+  <button class="close-btn" id="closeBtn" type="button">${htmlEntities(buttonLabel)}</button>
 </div>
 <script>
+  // Message the opener (dashboard) so it refreshes its UI right away.
+  // Then schedule auto-close. We deliberately do NOT navigate the popup
+  // anywhere as a fallback: setting window.location.href to the dashboard
+  // URL just loads the entire dashboard inside this little 520x680 popup
+  // window and looks broken. Far better to leave the success message up
+  // and provide a manual "סגור חלון" button — clicking a button is a
+  // user gesture, which can succeed at closing the popup in some browsers
+  // where a script-driven close() was silently ignored.
   (function () {
     var payload = ${payload};
     try {
@@ -98,12 +117,19 @@ export function resultPage(args: ResultArgs): string {
         window.opener.postMessage(payload, '*');
       }
     } catch (e) {}
+
+    var btn = document.getElementById('closeBtn');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        try { window.close(); } catch (e) {}
+      });
+    }
+
+    // Auto-close attempt. May silently no-op on browsers that block
+    // window.close() after cross-origin navigations (the OAuth flow goes
+    // through accounts.google.com). The manual button above is the
+    // fallback in that case.
     setTimeout(function () {
-      ${
-    safeReturn
-      ? `try { window.location.href = ${JSON.stringify(safeReturn)}; } catch (e) {}`
-      : ""
-  }
       try { window.close(); } catch (e) {}
     }, ${closeDelay});
   })();
