@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { getSettings, updateSettings } from '../api.js';
-import { toast, escapeHtml, formatRelative, setBtnLoading } from '../ui.js';
+import { toast, escapeHtml, formatRelative, setBtnLoading, confirmDialog } from '../ui.js';
 
 /**
  * Open Google OAuth in a popup that targets the Supabase Edge Function.
@@ -100,9 +100,14 @@ export async function renderSettingsPage(container) {
                   <div style="font-size:.8rem;color:var(--text-muted);margin-bottom:.15rem">חשבון מחובר</div>
                   <div><strong id="drive-email">${escapeHtml(settings.google_email || '-')}</strong></div>
                 </div>
-                <button class="btn btn-ghost" id="change-drive-btn" type="button">
-                  🔄 החלף חשבון
-                </button>
+                <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+                  <button class="btn btn-ghost" id="change-drive-btn" type="button">
+                    🔄 החלף חשבון
+                  </button>
+                  <button class="btn btn-danger" id="disconnect-drive-btn" type="button">
+                    🔌 נתק
+                  </button>
+                </div>
               </div>`
             : `<div style="padding:.85rem 1rem;background:var(--warning-soft);color:var(--warning);border-radius:var(--radius);font-size:.9rem;line-height:1.6;margin-bottom:.75rem">
                 <strong>נדרשת פעולה:</strong> כדי שהבוט יוכל לשלוח קבצים, יש לחבר חשבון Google Drive.
@@ -239,6 +244,45 @@ export async function renderSettingsPage(container) {
       // every Drive call, so the new account takes effect on the next file
       // request without restarting the bot. We just need to refresh the UI.
       await renderSettingsPage(container);
+    });
+  }
+
+  // ----- Disconnect Google Drive account -----
+  // Clears the OAuth tokens from app_settings. The bot reads these on every
+  // Drive call, so once cleared the next file request returns the friendly
+  // "Google Drive not connected" error to the WhatsApp user. We do NOT call
+  // Google's revoke endpoint from here — doing so would require sending the
+  // refresh token to a separate Edge Function. Instead we tell the user
+  // they can revoke at myaccount.google.com if they want full revocation.
+  const disconnectBtn = container.querySelector('#disconnect-drive-btn');
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'ניתוק Google Drive',
+        message:
+          `לנתק את חשבון "${settings.google_email || ''}"? ` +
+          `הבוט יפסיק לשלוח קבצים עד שתחבר חשבון מחדש. ` +
+          `(ההרשאה אצל Google עצמה נשארת — אם תרצה לבטל לגמרי, ` +
+          `הסר את האפליקציה ב-myaccount.google.com/permissions.)`,
+        danger: true,
+        confirmText: 'נתק',
+      });
+      if (!ok) return;
+
+      setBtnLoading(disconnectBtn, true);
+      try {
+        await updateSettings({
+          google_refresh_token: null,
+          google_access_token: null,
+          google_token_expiry: null,
+          google_email: null,
+        });
+        toast('החשבון נותק', 'success');
+        await renderSettingsPage(container);
+      } catch (err) {
+        toast(err.message || 'הניתוק נכשל', 'error');
+        setBtnLoading(disconnectBtn, false);
+      }
     });
   }
 }
