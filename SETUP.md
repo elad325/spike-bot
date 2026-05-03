@@ -207,6 +207,73 @@ npm start
 
 ---
 
+### שלב 7.5 (אופציונלי): הוסף בוט טלגרם
+
+הבוט יכול לרוץ בנוסף בטלגרם — באותה מכונה, באותו DB, עם אותם תפריטים.
+המנהלים שלך יכולים לקשר את שני החשבונות (WA ↔ TG) כך שאישור על אחד תקף לשני.
+
+#### 7.5.1 צור את הבוט מול BotFather
+
+1. פתח טלגרם, חפש **`@BotFather`**, שלח `/start`.
+2. שלח `/newbot`. ענה על:
+   - **Display name**: `SPIKE Bot` (או כל שם)
+   - **Username**: חייב להסתיים ב-`bot`, ייחודי בעולם, למשל `spike_files_bot`
+3. BotFather יחזיר **HTTP API token** (`123456:AA...`). שמור.
+4. (אופציונלי) הגדר תיאור, אבאטר, רשימת פקודות:
+   - `/setdescription` → "בוט שירות שולח קבצי PDF לפי תפריט"
+   - `/setuserpic` → העלה לוגו
+   - `/setcommands` →
+     ```
+     start - התחל שיחה
+     menu - תפריט ראשי
+     help - עזרה
+     admin - תפריט מנהלים
+     link - קשר חשבון WhatsApp
+     ```
+
+#### 7.5.2 הוסף את הטוקן ל-`.env`
+
+```env
+TELEGRAM_BOT_TOKEN=123456:AA...
+```
+
+#### 7.5.3 התקן תלויות + הפעל מחדש
+
+```bash
+cd bot
+npm install        # מתקין grammy + תלויות
+pm2 restart spike-bot
+pm2 logs spike-bot # תראה: "✅ Telegram bot @<your_bot> connected"
+```
+
+#### 7.5.4 קישור חשבון WhatsApp ↔ Telegram (לאדמינים)
+
+מהבוט בוואטסאפ, אדמין שולח:
+```
+/קשר טלגרם
+```
+הבוט יחזיר לינק `https://t.me/<your_bot>?start=link_<token>`. פתיחת הלינק
+בטלגרם מהחשבון שתרצה לקשר → קישור אוטומטי, הסטטוס/תפקיד מתסונכרן בין שני
+החשבונות מאותו רגע ואילך (מימוש על ידי trigger ב-DB —
+`mirror_user_status_role`).
+
+לחילופין, מתחילים מטלגרם: שלח `/link` בבוט הטלגרם, קבל token, ושלח
+`/קשר <token>` בבוט הוואטסאפ.
+
+#### 7.5.5 הריץ את ה-migration
+
+```bash
+cd supabase
+# או דרך Supabase Studio: SQL Editor → הדבק את התוכן של
+# supabase/migrations/20260503120000_telegram_support.sql
+supabase db push   # אם יש לך CLI מקומי
+```
+
+> ⚠️ ה-migration *תוסף בלבד* — לא משנה שום טבלה קיימת, ולכן בטוח לרוץ
+> על מערכת חיה.
+
+---
+
 ## ✅ בדיקה ראשונית
 
 1. **היכנס לממשק** - URL של GitHub Pages, התחבר עם האימייל והסיסמה משלב 1
@@ -262,6 +329,10 @@ pm2 logs spike-bot   # סרוק את ה-QR שיוצג
 | הממשק לא טוען | בדוק את הקונסולה (F12) - ודא ש-`config.js` מלא נכון |
 | הודעות לא מגיעות | `pm2 logs spike-bot` - חפש שגיאות |
 | Refresh token לא נשלח | במסך OAuth של Google - בטל הרשאה דרך https://myaccount.google.com/permissions והרץ שוב |
+| הבוט לא נכנס לטלגרם | ודא ש-`TELEGRAM_BOT_TOKEN` ב-`.env` ושעשית `npm install`. בלוגים תראה "Telegram channel disabled" אם הטוקן חסר |
+| `409 Conflict` בלוג של טלגרם | מישהו אחר מריץ polling עם אותו טוקן (למשל הבוט פתוח גם ב-PC אחר). עצור את העותק השני |
+| `/קשר טלגרם` מחזיר טוקן בלי לינק | הבוט עוד לא קיבל את ה-username מטלגרם. חכה כמה שניות אחרי הפעלה ונסה שוב |
+| הקישור לא עובד אחרי `/start link_...` | בדוק שהטוקן עוד תקף (10 דק'). אם פג, יצור חדש |
 
 ---
 
@@ -269,34 +340,47 @@ pm2 logs spike-bot   # סרוק את ה-QR שיוצג
 
 ```
 botlinklicensing/
-├── bot/                       # קוד הבוט (Node.js + Baileys)
+├── bot/                       # קוד הבוט (Node.js + Baileys + grammy)
 │   ├── src/
-│   │   ├── index.js           # נקודת כניסה
-│   │   ├── whatsapp.js        # חיבור ל-WhatsApp
+│   │   ├── index.js           # מתחיל גם WhatsApp וגם Telegram (Promise.allSettled)
+│   │   ├── whatsapp.js        # חיבור ל-WhatsApp (Baileys)
+│   │   ├── telegram.js        # חיבור ל-Telegram (grammy, polling)
 │   │   ├── supabase.js        # לקוח Supabase
-│   │   ├── googleDrive.js     # הורדת קבצים מהדרייב
+│   │   ├── googleDrive.js     # הורדת/העלאת קבצים בדרייב
 │   │   ├── heartbeat.js       # סימן חיים לממשק
+│   │   ├── shared/                  # פלטפורמה-אגנוסטי
+│   │   │   ├── menus.js             # קריאת menus/menu_items
+│   │   │   └── users.js             # קישור חשבונות + סנכרון תפקיד/סטטוס
 │   │   └── handlers/
-│   │       ├── messageHandler.js   # ניתוב הודעות נכנסות
-│   │       ├── menuHandler.js      # שליחת תפריטים וקבצים
-│   │       ├── notifyAdmins.js     # התראות למנהלים
-│   │       └── adminActions.js     # אישור/דחייה/קידום
+│   │       ├── messageHandler.js    # ניתוב הודעות WA
+│   │       ├── menuHandler.js       # תפריטים/קבצים WA
+│   │       ├── notifyAdmins.js      # fan-out לאדמינים בשתי הפלטפורמות
+│   │       ├── adminActions.js      # /אשר /דחה /מנהל
+│   │       ├── adminMenu.js         # תפריט מנהלים WA
+│   │       ├── linkActions.js       # /קשר טלגרם בצד WhatsApp
+│   │       └── telegram/            # מקביל ל-handlers/ אבל לטלגרם
+│   │           ├── messageHandler.js
+│   │           ├── menuHandler.js   # InlineKeyboard + edit-in-place
+│   │           ├── adminMenu.js     # paginated lists, callback grammar
+│   │           └── keyboards.js     # ה-reply-keyboard הקבוע
 │   ├── auth/                  # סשן WhatsApp (לא ב-git)
-│   ├── .env                   # סודות (לא ב-git)
+│   ├── .env                   # סודות, כולל TELEGRAM_BOT_TOKEN (לא ב-git)
 │   ├── ecosystem.config.cjs   # קונפיג PM2
 │   ├── setup-google.js        # OAuth ראשוני
 │   └── install-windows-service.ps1  # התקנה כשירות
+├── supabase/
+│   └── migrations/            # baseline + תוספי טלגרם
 └── web/                       # ממשק (סטטי - GitHub Pages)
     ├── index.html
     ├── css/style.css
     └── js/
         ├── main.js            # נקודת כניסה
         ├── config.js          # הגדרות
-        ├── api.js             # קריאות לסופאבייס
+        ├── api.js             # קריאות לסופאבייס (טבלאות WA + TG)
         ├── ui.js              # רכיבי UI
         ├── router.js          # ראוטר
         ├── google.js          # Drive Picker
-        └── pages/             # דפי הממשק
+        └── pages/             # דפי הממשק (users + messages עם פילטר פלטפורמה)
 ```
 
 ---

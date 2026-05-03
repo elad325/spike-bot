@@ -148,34 +148,99 @@ export async function reorderMenuItems(orderedIds) {
 }
 
 // ============================================
-// WhatsApp Users
+// Bot Users (WhatsApp + Telegram, unified surface)
 // ============================================
+//
+// Each "user" returned here carries a `platform` discriminator so the UI
+// can render and dispatch correctly without caring which underlying table
+// the row came from. All cross-table consistency (linking, mirroring of
+// status/role) lives in the DB layer (mirror_user_status_role trigger),
+// so callers here just write to the right table and the other side
+// follows along automatically.
+
 export async function listUsers(filter = {}) {
+  // Fetch both platforms in parallel, then merge + sort.
+  const [waResult, tgResult] = await Promise.all([
+    listWhatsappUsersRaw(filter),
+    listTelegramUsersRaw(filter),
+  ]);
+  const merged = [
+    ...waResult.map((u) => ({ ...u, platform: 'whatsapp' })),
+    ...tgResult.map((u) => ({ ...u, platform: 'telegram' })),
+  ];
+  merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return merged;
+}
+
+async function listWhatsappUsersRaw(filter) {
   let q = supabase.from('whatsapp_users').select('*');
   if (filter.status) q = q.eq('status', filter.status);
   if (filter.role) q = q.eq('role', filter.role);
   q = q.order('created_at', { ascending: false });
   const { data, error } = await q;
   if (error) throw error;
-  return data;
+  return data || [];
+}
+
+async function listTelegramUsersRaw(filter) {
+  let q = supabase.from('telegram_users').select('*');
+  if (filter.status) q = q.eq('status', filter.status);
+  if (filter.role) q = q.eq('role', filter.role);
+  q = q.order('created_at', { ascending: false });
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
 }
 
 export async function countPendingUsers() {
-  const { count, error } = await supabase
-    .from('whatsapp_users')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending');
-  if (error) return 0;
-  return count || 0;
+  const [{ count: waCount }, { count: tgCount }] = await Promise.all([
+    supabase
+      .from('whatsapp_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending'),
+    supabase
+      .from('telegram_users')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending'),
+  ]);
+  return (waCount || 0) + (tgCount || 0);
 }
 
-export async function updateUser(id, patch) {
-  const { error } = await supabase.from('whatsapp_users').update(patch).eq('id', id);
+export async function updateUser(platform, id, patch) {
+  const table = platformTable(platform);
+  const { error } = await supabase.from(table).update(patch).eq('id', id);
   if (error) throw error;
 }
 
-export async function deleteUser(id) {
-  const { error } = await supabase.from('whatsapp_users').delete().eq('id', id);
+export async function deleteUser(platform, id) {
+  const table = platformTable(platform);
+  const { error } = await supabase.from(table).delete().eq('id', id);
+  if (error) throw error;
+}
+
+function platformTable(platform) {
+  if (platform === 'telegram') return 'telegram_users';
+  return 'whatsapp_users'; // default
+}
+
+// ============================================
+// Bot account links
+// ============================================
+//
+// Returns rows with both sides expanded so the UI can show "linked to <X>"
+// without an extra round-trip per user.
+export async function listBotLinks() {
+  const { data, error } = await supabase
+    .from('bot_links')
+    .select(
+      'id, created_at, whatsapp_user_id, telegram_user_id'
+    );
+  if (error) throw error;
+  return data || [];
+}
+
+export async function unlinkBotLink(id) {
+  const { error } = await supabase.from('bot_links').delete().eq('id', id);
   if (error) throw error;
 }
 
@@ -190,13 +255,19 @@ function escapeOrFilterValue(s) {
   return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
-export async function listMessages({ search = '', phone = null, limit = 200 } = {}) {
+export async function listMessages({
+  search = '',
+  phone = null,
+  platform = null,
+  limit = 200,
+} = {}) {
   let q = supabase
     .from('messages')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (phone) q = q.eq('phone_number', phone);
+  if (platform) q = q.eq('platform', platform);
   if (search) {
     const v = escapeOrFilterValue(`%${search}%`);
     q = q.or(`body.ilike.${v},whatsapp_name.ilike.${v},phone_number.ilike.${v}`);
@@ -212,11 +283,18 @@ export async function listMessages({ search = '', phone = null, limit = 200 } = 
 let channelCounter = 0;
 
 export function subscribePending(cb) {
+  // One channel, two table subscriptions — pending count needs to refresh
+  // on changes to either platform's user table.
   const channel = supabase
     .channel(`pending-users-${++channelCounter}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'whatsapp_users' },
+      () => cb()
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'telegram_users' },
       () => cb()
     )
     .subscribe();
