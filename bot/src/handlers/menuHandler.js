@@ -155,7 +155,7 @@ export async function sendFile(sock, jid, user, item) {
       await sendText(sock, jid, `❌ הקובץ "${item.label}" נמחק או הועבר. הודענו למנהל.`);
       // Notify admins
       const { notifyAdminsFileMissing } = await import('./notifyAdmins.js');
-      await notifyAdminsFileMissing(sock, item);
+      await notifyAdminsFileMissing(item);
     } else if (err.message?.includes('Google Drive not connected')) {
       await sendText(sock, jid, '❌ הבוט לא מחובר לדרייב. אנא פנה למנהל.');
     } else {
