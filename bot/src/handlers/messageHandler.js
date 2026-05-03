@@ -8,10 +8,7 @@ import {
   parseNumericReply,
 } from '../utils/format.js';
 import { sendMenu, sendRootMenu, sendFile, sendText } from './menuHandler.js';
-import {
-  notifyAdminsNewUser,
-  sendApprovalResult,
-} from './notifyAdmins.js';
+import { notifyAdminsNewUser } from './notifyAdmins.js';
 import { handleAdminAction, isAdminCommand, parseAdminCommand } from './adminActions.js';
 import {
   enterAdminMenu,
@@ -19,6 +16,13 @@ import {
   isInAdminFlow,
   handleAdminInput,
 } from './adminMenu.js';
+import {
+  isLinkIssueCommand,
+  isLinkRedeemCommand,
+  parseLinkRedeemToken,
+  handleLinkIssue,
+  handleLinkRedeem,
+} from './linkActions.js';
 
 const RESET_COMMANDS = ['תפריט', '/תפריט', '/menu', '/start', 'start', 'היי', 'שלום'];
 const HELP_COMMANDS = ['/עזרה', '/help', 'עזרה', 'help'];
@@ -249,6 +253,20 @@ export async function handleMessage(sock, msg) {
       }
     }
 
+    // Cross-platform linking commands. Issue creates a token to use in
+    // Telegram; redeem consumes a token created on the Telegram side.
+    if (isLinkIssueCommand(content.text)) {
+      await handleLinkIssue(sock, user);
+      return;
+    }
+    if (isLinkRedeemCommand(content.text)) {
+      const token = parseLinkRedeemToken(content.text);
+      if (token) {
+        await handleLinkRedeem(sock, user, token);
+        return;
+      }
+    }
+
     // Admin-menu state machine: entry command opens it, otherwise route any
     // message (including media uploads) through the flow handler.
     if (isAdminEntryCommand(content.text)) {
@@ -282,7 +300,11 @@ export async function handleMessage(sock, msg) {
         .limit(1)
         .single();
 
-      await notifyAdminsNewUser(sock, user, content.text || `(${content.type})`);
+      await notifyAdminsNewUser({
+        platform: 'whatsapp',
+        user,
+        firstMessage: content.text || `(${content.type})`,
+      });
       await sendText(sock, jid, settings?.pending_message || 'הבקשה שלך הועברה לאישור.');
       await saveMessage({
         user,
